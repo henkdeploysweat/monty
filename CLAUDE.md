@@ -45,11 +45,33 @@ permanently awake. Anything outside both sets is a defensive logged drop.
 **Consequence:** `info` rows no longer reach Slack (the observer only ever read
 from Snowflake; `warning` never reached Slack anyway). DynamoDB replaced the
 earlier S3 Parquet store (2026-07-17): `s3_writer.py`, `compact_s3.py` and the
-pyarrow image dep are gone; the `monty-<env>-metrics` bucket + write grant +
-`MONTY_METRICS_BUCKET` env var are RETAINED through cutover (pre-cutover history
-+ image-rollback safety) — decommission only after DynamoDB is verified. The
-dashboard reads DynamoDB via `dash/db.py` (`MONTY_SOURCE=dynamo`, and the
-`both` union now reads dynamo + sqlite + s3 legs). **This routing applies only
+pyarrow image dep are gone.
+
+**Migration COMPLETE (2026-07-17), and the backfill is now VERIFIED complete.**
+Both envs deployed and verified writing live; the pre-cutover history was
+replayed into DynamoDB with `dash/backfill_dynamo.py` (idempotent:
+`sk = "<occurred_at>#<identity>"`, TTL from the ORIGINAL `occurred_at`, so
+replayed rows expire on their real schedule).
+
+**The first backfill silently lost 78,912 rows (07-15 → 07-17) and reported
+success.** It deduped on `row["ID"]`, but S3 Parquet rows have NO `ID` column —
+every row keyed to `None`, so the whole S3 leg collapsed to one row while the
+SQLite leg (which has IDs) sailed through. The gap was invisible because the
+`both` union was still reading S3 and covering for it. Fixed 2026-07-17
+(`_row_identity` + natural-key dedup + a warning when a leg contributes <1% of
+what it read), re-run, and verified by key rather than by count:
+**78,913/78,913 S3 rows and 174,325/174,325 SQLite rows now match a DynamoDB row
+on `(pipeline, metric, occurred_at, value)`.** DynamoDB is a strict superset of
+both old stores. Tests: `tests/test_backfill_dynamo.py`.
+
+Only NOW are the S3/SQLite legs genuinely redundant. The dashboard reads
+`MONTY_SOURCE=both` + `MONTY_BOTH_WARN_SOURCE=dynamo` (Snowflake for
+critical/error + dbt, DynamoDB for warn/info, S3 leg dropped — it was the
+slowest at ~103.8s and paced the whole union). `MONTY_SOURCE=dynamo` ALONE is
+NOT equivalent: it would drop every failure and dbt metric. The
+`monty-<env>-metrics` bucket + write grant + `MONTY_METRICS_BUCKET` env var are
+retained for image-rollback safety only — decommissionable now that the replay
+is verified. **This routing applies only
 to the Lambda write path.** The auditor proc and dbt hooks INSERT directly into
 `CUSTOM_METRICS` (bypassing `metric_writer`), so all four severities still persist
 to Snowflake from them — deliberately left alone: each emits ~1 bulk INSERT per run

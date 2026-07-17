@@ -18,9 +18,18 @@ produces. Only `critical`/`error` are excluded — those belong in Snowflake and
 are NOT part of the DynamoDB contract.
 
 IDEMPOTENCY:  the live writer builds `sk` as "<occurred_at>#<uuid4>", which would
-duplicate on every re-run. Here the sk is "<occurred_at>#<source ID>" — derived
-from the event's own ID — so a re-run overwrites the same item instead of
-duplicating. That makes this safe to resume after a failure.
+duplicate on every re-run. Here the sk is "<occurred_at>#<identity>" — derived
+from the event itself (see _row_identity) — so a re-run overwrites the same item
+instead of duplicating. That makes this safe to resume after a failure.
+
+    !! S3 PARQUET ROWS HAVE NO `ID` COLUMN !!  Their keys are ENVIRONMENT,
+    IS_ALERT, METRIC_NAME, METRIC_VALUE, OCCURRED_AT, PAYLOAD, PIPELINE_NAME,
+    RUN_ID, SENT_AT, SENT_TO_SLACK — no ID, and RUN_ID is None. An earlier
+    version keyed dedup on row["ID"] regardless, so every S3 row deduped to the
+    same None and the leg silently collapsed to ONE row. That is how 78,912 rows
+    (07-15 -> 07-17) went missing from the first backfill while it reported
+    success. Hence _row_identity, and hence the cross-leg dedup on the NATURAL
+    key rather than on an id that may not exist.
 
 TTL:  `occurred_at + MONTY_METRICS_TTL_DAYS` (default 90d), matching
 dynamo_writer._ttl_epoch. Replayed rows therefore expire on their ORIGINAL
@@ -39,6 +48,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import logging
 import os
 import sys
@@ -54,12 +64,38 @@ DEFAULT_TTL_DAYS = int(os.environ.get("MONTY_METRICS_TTL_DAYS", "90"))
 BATCH = 25          # DynamoDB batch_write_item hard limit
 
 
+def _row_identity(row) -> str:
+    """Stable per-event identity, used as the sk suffix so re-runs overwrite.
+
+    SQLite/Snowflake rows carry the source `ID`; keep using it, so the items an
+    earlier run already wrote as "<occurred_at>#<ID>" stay idempotent rather
+    than being duplicated under a new scheme.
+
+    S3 Parquet rows have NO ID column at all, so fall back to a hash of the
+    event's own content. It must be deterministic (a uuid4 here would duplicate
+    every row on every re-run) and it must include enough fields to separate two
+    metrics emitted by one pipeline at the same instant — which is routine: the
+    busiest pipelines emit ~253 metrics per run.
+    """
+    rid = row.get("ID")
+    if rid not in (None, ""):
+        return str(rid)
+    basis = "|".join(str(row.get(field)) for field in
+                     ("PIPELINE_NAME", "METRIC_NAME", "OCCURRED_AT",
+                      "METRIC_VALUE", "SEVERITY", "RUN_ID", "PAYLOAD"))
+    return "h" + hashlib.sha1(basis.encode("utf-8")).hexdigest()[:16]
+
+
 def _fetch_rows(env, start, end, source):
     """Pull normalised rows from the SQLite cache and/or the live S3 Parquet.
 
     Both legs are read and unioned because neither covers the full window on its
-    own (SQLite only has what the ingest job archived). De-dup is on the event
-    ID, which is unique per row in every store.
+    own (SQLite only has what the ingest job archived).
+
+    De-dup is on the event's NATURAL key, not on an id: the two legs identify the
+    same event differently (SQLite has an ID, S3 has none), so an id-based union
+    cannot match them — and, worse, an absent id collapses the whole leg. See the
+    module docstring.
     """
     import db
 
@@ -79,12 +115,19 @@ def _fetch_rows(env, start, end, source):
         except Exception as exc:                      # a dead leg must not abort
             logger.warning("  leg %-7s FAILED, skipping: %s", name, exc)
             continue
+        kept_leg = 0
         for r in got:
-            rid = r.get("ID")
-            if rid in seen:
+            key = db._row_key(r)          # (pipeline, metric, occurred_at, value)
+            if key in seen:
                 continue
-            seen.add(rid)
+            seen.add(key)
             rows.append(r)
+            kept_leg += 1
+        # A leg contributing ~nothing while reporting thousands of rows is the
+        # signature of the dedup bug above — say so rather than fail silently.
+        if got and kept_leg < len(got) * 0.01:
+            logger.warning("  leg %-7s contributed only %d of %d row(s) — "
+                           "duplicates, or a dedup bug?", name, kept_leg, len(got))
 
     kept = [r for r in rows
             if str(r.get("SEVERITY") or "").lower() in DDB_SEVERITIES
@@ -105,8 +148,8 @@ def _to_item(row):
     pipeline = row.get("PIPELINE_NAME")
     item = {
         "pk": f"{env}#{pipeline}",
-        # deterministic sk (source ID, not uuid4) -> re-runs overwrite, not duplicate
-        "sk": f"{occurred_iso}#{row.get('ID')}",
+        # deterministic sk (never uuid4) -> re-runs overwrite, not duplicate
+        "sk": f"{occurred_iso}#{_row_identity(row)}",
         "pipeline_name": pipeline,
         "metric_name": row.get("METRIC_NAME"),
         "severity": row.get("SEVERITY"),
