@@ -18,6 +18,12 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+# The dashboard is a flat package (`import db`, `import transform`), so its
+# directory has to be importable too — see tests/test_dash_dynamo_reader.py.
+_DASH_DIR = _REPO_ROOT / "dash"
+if str(_DASH_DIR) not in sys.path:
+    sys.path.insert(0, str(_DASH_DIR))
+
 # Lambda runtime expects these env vars; provide harmless defaults so module
 # imports don't fail before tests even run.
 os.environ.setdefault("MONTY_SECRET_NAME", "monty-test-secrets")
@@ -64,11 +70,74 @@ def _stub_client(name, region_name=None):  # noqa: ARG001
 def _stub_resource(name, region_name=None):  # noqa: ARG001
     return _StubDynamoResource()
 
+class _StubSession:
+    """boto3.Session(profile_name=...) — the dashboard reader resolves a
+    per-environment profile (db._s3_profile_for) before opening a resource."""
+
+    def __init__(self, profile_name=None):  # noqa: N803 — boto3 API name
+        self.profile_name = profile_name
+
+    def client(self, name, region_name=None):  # noqa: ARG002
+        return _StubSecretsClient()
+
+    def resource(self, name, region_name=None):  # noqa: ARG002
+        return _StubDynamoResource()
+
 boto3_stub.client = _stub_client  # type: ignore[attr-defined]
 boto3_stub.resource = _stub_resource  # type: ignore[attr-defined]
+boto3_stub.Session = _StubSession  # type: ignore[attr-defined]
 boto3_stub._StubSecretsClient = _StubSecretsClient  # exposed for tests
 boto3_stub._StubDynamoTable = _StubDynamoTable  # exposed for tests
 sys.modules["boto3"] = boto3_stub
+
+
+# ---------------------------------------------------------------------------
+# boto3.dynamodb.conditions — Key/Attr build the KeyConditionExpression the
+# dashboard reader Queries with (dash/db.py). The real classes render to
+# DynamoDB wire syntax; these just record (name, op, *values) so a test can
+# assert on the sk range bounds without a live table.
+# ---------------------------------------------------------------------------
+_ddb_mod = types.ModuleType("boto3.dynamodb")
+_cond_mod = types.ModuleType("boto3.dynamodb.conditions")
+
+class _StubCondition:
+    """One or more recorded predicates. `&` concatenates, like the real API."""
+
+    def __init__(self, terms):
+        self.terms = list(terms)
+
+    def __and__(self, other):
+        return _StubCondition(self.terms + other.terms)
+
+    def term(self, name):
+        """The recorded predicate for `name`, or None. Test convenience."""
+        for t in self.terms:
+            if t[0] == name:
+                return t
+        return None
+
+class _StubKeyAttr:
+    """Stands in for BOTH Key and Attr — identical surface for our purposes."""
+
+    def __init__(self, name):
+        self.name = name
+
+    def eq(self, value):
+        return _StubCondition([(self.name, "eq", value)])
+
+    def between(self, low, high):
+        return _StubCondition([(self.name, "between", low, high)])
+
+    def not_exists(self):
+        return _StubCondition([(self.name, "not_exists")])
+
+_cond_mod.Key = _StubKeyAttr  # type: ignore[attr-defined]
+_cond_mod.Attr = _StubKeyAttr  # type: ignore[attr-defined]
+_cond_mod._StubCondition = _StubCondition
+_ddb_mod.conditions = _cond_mod  # type: ignore[attr-defined]
+boto3_stub.dynamodb = _ddb_mod  # type: ignore[attr-defined]
+sys.modules["boto3.dynamodb"] = _ddb_mod
+sys.modules["boto3.dynamodb.conditions"] = _cond_mod
 
 
 # ---------------------------------------------------------------------------

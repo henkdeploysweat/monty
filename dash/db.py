@@ -108,6 +108,14 @@ MONTY_S3_PROFILE = os.environ.get("MONTY_S3_PROFILE", "").strip()
 # separate accounts.
 MONTY_DDB_TABLE = os.environ.get("MONTY_DDB_TABLE", "monty-{env}-metrics-ddb")
 MONTY_DDB_REGION = os.environ.get("MONTY_DDB_REGION", "us-east-1")
+# Comma-separated pipeline names, to skip the discovery Scan (_ddb_pipelines).
+# Only worth setting if that Scan's cost is a problem AND the set is stable —
+# a pipeline missing from this list is INVISIBLE to the dashboard.
+MONTY_DDB_PIPELINES = os.environ.get("MONTY_DDB_PIPELINES", "").strip()
+# Reads are parallelised per pipeline. Measured: 4 workers 2.1s, 8 workers 3.7s
+# — beyond ~4 the concurrent streams contend for the same uplink and it gets
+# SLOWER. Do not raise this without re-measuring.
+MONTY_DDB_WORKERS = int(os.environ.get("MONTY_DDB_WORKERS", "4"))
 
 
 def _s3_profile_for(env: str) -> str | None:
@@ -180,9 +188,20 @@ CACHE_TTL = {
     # files (~9s to read). A short cache makes every refresh after the first
     # instant, at the cost of being at most this many seconds stale.
     "s3": int(os.environ.get("MONTY_TTL_S3", "60")),                 # 1 min
-    # DynamoDB warn/info events: a lookback-window Scan is one paginated call
-    # (fast, but billed per read unit) — same short cache as the S3 leg.
+    # DynamoDB warn/info events: the detail lane is a per-pipeline Query over
+    # the visible window (~2s) — same short cache as the S3 leg.
     "dynamo": int(os.environ.get("MONTY_TTL_DYNAMO", "60")),         # 1 min
+    # The trailing lane is 7d of (occurred_at, pipeline_name) — 165k rows, ~21s,
+    # and the single dominant cost of a timeline render. It feeds ONLY cadence
+    # and last-seen, which move on the order of hours, so a long cache costs no
+    # meaningful freshness: a pipeline's median session gap does not change
+    # because 15 minutes passed. The detail lane stays on the 60s TTL, so the
+    # bars the user is actually looking at are still near-live.
+    "dynamo_trailing": int(os.environ.get("MONTY_TTL_DYNAMO_TRAILING", "900")),
+    # The pipeline list (distinct pk) costs a full-table Scan — ~30s — because
+    # DynamoDB cannot answer "distinct partition keys" any other way. It changes
+    # when a pipeline is added, i.e. approximately never, so cache it hard.
+    "ddb_pipelines": int(os.environ.get("MONTY_TTL_DDB_PIPELINES", "3600")),
 }
 _CACHE: dict = {}
 _CACHE_LOCK = threading.Lock()
@@ -292,16 +311,30 @@ def _connect():
 
 
 def fetch_events(lookback_days: int = 7, env: str = "prod",
-                 now: datetime | None = None) -> list[dict]:
+                 now: datetime | None = None,
+                 detail_days: int | None = None) -> list[dict]:
     """Return event rows for the given environment over the lookback window.
-    OCCURRED_AT / SENT_AT come back normalised to UTC."""
+    OCCURRED_AT / SENT_AT come back normalised to UTC.
+
+    `detail_days` is a HINT, not a contract: "I only need full rows for the last
+    N days; older rows may carry occurred_at + pipeline_name alone." The
+    timeline uses it because its trailing history feeds only cadence and
+    last-seen (transform.py:246-248) — on DynamoDB that turns a 155s read into
+    ~23s cold / ~2s warm, because payload is ~3x of all other bytes.
+
+    A source is always free to IGNORE the hint and return full rows: every
+    caller must treat the extra fields as possibly-present, never
+    possibly-absent. Only the DynamoDB leg honours it today. Pass None (the
+    default) to require full rows throughout — the anomaly page does, since it
+    reads METRIC_VALUE across the whole window.
+    """
     source = os.environ.get("MONTY_SOURCE", "snowflake").lower()
     if source == "csv":
         rows = _fetch_csv(lookback_days, env, now)
     elif source == "s3":
         rows = _fetch_s3(lookback_days, env, now)
     elif source in ("dynamo", "ddb", "dynamodb"):
-        rows = _fetch_dynamo(lookback_days, env, now)
+        rows = _fetch_dynamo(lookback_days, env, now, detail_days)
     elif source == "sqlite":
         rows = _fetch_sqlite(lookback_days, env, now)
     elif source == "both":
@@ -614,10 +647,214 @@ def _fetch_s3_impl(lookback_days, env, now):
 
 # --- DynamoDB source ------------------------------------------------------
 # Post-cutover home of the lambda warning/info metrics (see MONTY_DDB_TABLE
-# above). The dashboard needs "every pipeline's events in the window", which
-# crosses partition keys (pk is per-pipeline), so this is a paginated Scan with
-# a server-side filter — fine at this volume on an on-demand table, and the
-# short _CACHE TTL absorbs refresh bursts.
+# above): pk = "<env>#<pipeline>", sk = "<occurred_at ISO UTC>#<uuid>".
+#
+# WHY QUERY AND NOT SCAN (measured 2026-07-17, prod, 178,862 items):
+#
+#     24h window via Scan   28.0s   3,679 rows   92 pages
+#     24h window via Query   2.1s   3,679 rows   12 pages
+#
+# Both return identical rows. Scan's 1MB page limit applies to SCANNED data,
+# *before* FilterExpression runs, so a 24h window still pages over the entire
+# table — every Scan of this table costs ~28s no matter how narrow the filter,
+# and that floor grows with the table. Query reads only matching items, so it
+# has no such floor. The cost model that fits every measurement is:
+#
+#     Scan:  ~28s + bytes/0.47MBps        Query:  bytes/0.47MBps + rows/10400ps
+#
+# The sk sort key already IS a time index (it starts with the ISO timestamp),
+# so no GSI, no extra attribute and no backfill are needed to Query by time —
+# a sk range over one pk is exactly the old occurred_at filter, per pipeline.
+#
+# 0.47 MB/s is the laptop's uplink to us-east-1, not a DynamoDB limit; bytes
+# therefore dominate, which is why the projections below matter so much.
+
+# Every attribute the writer emits (lambdas/shared/dynamo_writer.py) EXCEPT
+# `payload`. Payload is ~3x of all other bytes combined.
+# `environment` is absent deliberately — every item is read from the partition
+# pk="<env>#<pipeline>", so it is known from the key and re-stamped below rather
+# than paid for on the wire (see _fetch_dynamo_impl).
+_DDB_LEAN_ATTRS = ("occurred_at", "pipeline_name", "metric_name", "metric_value",
+                   "severity", "is_alert", "run_id")
+# All the trailing/cadence lane consumes: last_seen + the per-minute bucket set
+# (transform.py cadence loop). ~30B/row against ~400B for a full item.
+_DDB_TRAILING_ATTRS = ("occurred_at", "pipeline_name")
+# sk is "<occurred_at ISO>#<id>", so to make a sk range equal an occurred_at
+# range the upper bound needs a suffix above any id. '￿' encodes to
+# EF BF BF — above every byte a uuid4 (hex + '-') or a source ID can produce.
+_DDB_SK_MAX = "#￿"
+
+
+def _ddb_table(env: str):
+    """boto3 Table handle for this env (dev/prod live in separate accounts)."""
+    import boto3
+    profile = _s3_profile_for(env)
+    session = boto3.Session(profile_name=profile) if profile else boto3.Session()
+    if profile:
+        logger.info("dynamo: using AWS profile %r for env=%s", profile, env)
+    return session.resource("dynamodb", region_name=MONTY_DDB_REGION).Table(
+        MONTY_DDB_TABLE.format(env=env))
+
+
+def _ddb_projection(attrs) -> dict:
+    """ProjectionExpression kwargs for `attrs`, aliased via ExpressionAttribute-
+    Names so an attribute that is (or becomes) a DynamoDB reserved word can't
+    break the read."""
+    if not attrs:
+        return {}
+    names = {"#a%d" % i: a for i, a in enumerate(attrs)}
+    return {"ProjectionExpression": ", ".join(names),
+            "ExpressionAttributeNames": names}
+
+
+def _ddb_pipelines(env: str) -> list[str]:
+    """Every pk in the table, i.e. "<env>#<pipeline>" for each known pipeline.
+
+    Needed because Query — unlike Scan — must be told which partition to read,
+    and fetch_pipeline_last_seen deliberately returns {} for this source. There
+    is no cheap "distinct partition keys" in DynamoDB, so this is a full Scan
+    projecting pk alone (~30s, 11 pks in prod). Cached hard (ddb_pipelines TTL,
+    default 1h): the list changes only when a pipeline is added.
+
+    MONTY_DDB_PIPELINES short-circuits it, at the cost of new pipelines being
+    invisible until someone updates the variable.
+    """
+    if MONTY_DDB_PIPELINES:
+        pipes = [p.strip() for p in MONTY_DDB_PIPELINES.split(",") if p.strip()]
+        logger.info("dynamo: pipeline list from MONTY_DDB_PIPELINES (%d)", len(pipes))
+        return ["%s#%s" % (env, p) for p in pipes]
+
+    def run():
+        table = _ddb_table(env)
+        started = time.monotonic()
+        pks, kwargs, page = set(), {"ProjectionExpression": "pk"}, 0
+        while True:
+            page += 1
+            resp = table.scan(**kwargs)
+            for item in resp.get("Items", []):
+                pks.add(item["pk"])
+            last_key = resp.get("LastEvaluatedKey")
+            if not last_key:
+                break
+            kwargs["ExclusiveStartKey"] = last_key
+        logger.info("dynamo: pipeline discovery scan %.1fs, %d page(s) -> %d pk",
+                    time.monotonic() - started, page, len(pks))
+        return sorted(pks)
+
+    return _cached("ddb_pipelines", env, run)
+
+
+def _sk_bounds(start, end, include_end: bool) -> tuple[str, str]:
+    """sk range for the time range [start, end] / [start, end).
+
+    sk is "<occurred_at ISO>#<id>", so a sk range IS an occurred_at range — this
+    is what makes a GSI unnecessary. The end is the fiddly part:
+
+      include_end=True  -> "<end>#￿" so every id at `end` is INSIDE
+      include_end=False -> "<end>" so every id at `end` is OUTSIDE
+                           ("<end>#<id>" always sorts after "<end>")
+
+    The exclusive form is what keeps the detail and trailing lanes disjoint. If
+    both ended inclusively, an event landing exactly on the split instant would
+    be returned by BOTH lanes, and the union is deliberately not de-duplicated —
+    so that run would be counted twice.
+    """
+    return (_iso(start), _iso(end) + (_DDB_SK_MAX if include_end else ""))
+
+
+def _ddb_query_pk(table, pk, sk_lo, sk_hi, attrs) -> list[dict]:
+    """One pipeline's items over an sk range, via the existing sk time index."""
+    from boto3.dynamodb.conditions import Key
+    kwargs = {"KeyConditionExpression": (
+        Key("pk").eq(pk) & Key("sk").between(sk_lo, sk_hi))}
+    kwargs.update(_ddb_projection(attrs))
+    items = []
+    while True:
+        resp = table.query(**kwargs)
+        items.extend(resp.get("Items", []))
+        last_key = resp.get("LastEvaluatedKey")
+        if not last_key:
+            break
+        kwargs["ExclusiveStartKey"] = last_key
+    return items
+
+
+def _ddb_query_window(table, pks, sk_lo, sk_hi, attrs, label) -> list[dict]:
+    """Query every pipeline over one sk range, a few pipelines at a time.
+
+    Concurrency is deliberately small (MONTY_DDB_WORKERS, default 4): the link
+    is the bottleneck, so more streams contend rather than help — 8 workers
+    measured SLOWER than 4. A failed pipeline is fatal: silently rendering a
+    timeline that is missing a pipeline is worse than an error.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    started = time.monotonic()
+    with ThreadPoolExecutor(max_workers=max(1, MONTY_DDB_WORKERS)) as pool:
+        per_pipe = list(pool.map(
+            lambda pk: _ddb_query_pk(table, pk, sk_lo, sk_hi, attrs), pks))
+    items = [item for chunk in per_pipe for item in chunk]
+    logger.info("dynamo: [%s] %d item(s) from %d pipeline(s) in %.1fs",
+                label, len(items), len(pks), time.monotonic() - started)
+    return items
+
+
+def _ddb_representative_items(table, pks, sk_lo, sk_hi) -> list[dict]:
+    """The newest FULL item per pipeline WITHIN [start, end] — one Query each.
+
+    The trailing lane projects `payload` away, but transform._pick_pay needs one
+    representative payload per pipeline to recover dbt/family identity. Without
+    this, a pipeline with no activity in the detail window (exactly the stale
+    ghost lanes that matter) would lose its payload and fall back to its raw
+    name. 11 single-row Queries cost ~0.5s and make that independent of recency.
+
+    The range bound is load-bearing, not tidiness: the caller's `now` is
+    truncated to the minute, so an unbounded "newest" Query returns the row
+    written in the last few seconds — which is outside the window, matches no
+    fetched row, and the graft silently misses. That hit exactly the two busiest
+    pipelines, which always have a row in the current minute. A pipeline with
+    nothing in the window returns nothing here, which is correct: the old
+    full-window Scan had no payload for it either.
+    """
+    from boto3.dynamodb.conditions import Key
+    from concurrent.futures import ThreadPoolExecutor
+
+    def newest(pk):
+        resp = table.query(
+            KeyConditionExpression=(Key("pk").eq(pk)
+                                    & Key("sk").between(sk_lo, sk_hi)),
+            ScanIndexForward=False, Limit=1)
+        return resp.get("Items", [])
+
+    started = time.monotonic()
+    with ThreadPoolExecutor(max_workers=max(1, MONTY_DDB_WORKERS)) as pool:
+        chunks = list(pool.map(newest, pks))
+    items = [item for chunk in chunks for item in chunk]
+    logger.info("dynamo: [payload] %d representative item(s) in %.1fs",
+                len(items), time.monotonic() - started)
+    return items
+
+
+def _normalise_ddb_trailing_row(item: dict) -> dict:
+    """Cheap normaliser for trailing-lane items (_DDB_TRAILING_ATTRS only).
+
+    The full _normalise_ddb_row rebuilds the dict, coerces six fields and
+    JSON-probes the payload — ~100µs/row, which over 165k trailing rows is ~17s
+    of pure Python for fields that are all None anyway. The trailing lane only
+    ever feeds last-seen and the per-minute bucket set, so it needs exactly two
+    fields; everything else defaults exactly as the full normaliser would leave
+    it (transform reads SEVERITY/IS_ALERT through _g with its own defaults, and
+    only ever for rows inside the window, which come from the detail lane).
+    """
+    occurred = item.get("occurred_at")
+    if isinstance(occurred, str):
+        try:
+            occurred = datetime.fromisoformat(occurred)
+        except ValueError:
+            occurred = None
+    return {"PIPELINE_NAME": item.get("pipeline_name"),
+            "OCCURRED_AT": _to_utc_naive(occurred)}
+
+
 def _normalise_ddb_row(item: dict) -> dict:
     """Coerce one DynamoDB item to the Snowflake/CSV row contract (upper-case
     keys, float METRIC_VALUE, naive-UTC OCCURRED_AT, PAYLOAD as JSON string)."""
@@ -641,63 +878,134 @@ def _normalise_ddb_row(item: dict) -> dict:
     return _normalise_s3_row(raw)          # same upper-casing + type coercion
 
 
-def _fetch_dynamo(lookback_days, env, now):
+def _iso(dt) -> str:
+    """UTC ISO string matching what the writer stamps, so a lexicographic sk/
+    occurred_at comparison is apples-to-apples."""
+    from datetime import timezone
+    return dt.replace(tzinfo=timezone.utc).isoformat()
+
+
+def _fetch_dynamo(lookback_days, env, now, detail_days=None):
     """Cached wrapper around the DynamoDB read (MONTY_TTL_DYNAMO, default 60s).
     Key is bucketed to the minute so a live view (now=utcnow) actually hits it."""
     ref = now or datetime.utcnow()
-    key = (env, lookback_days, ref.replace(second=0, microsecond=0))
-    return _cached("dynamo", key, lambda: _fetch_dynamo_impl(lookback_days, env, now))
+    key = (env, lookback_days, detail_days, ref.replace(second=0, microsecond=0))
+    return _cached("dynamo", key,
+                   lambda: _fetch_dynamo_impl(lookback_days, env, now, detail_days))
 
 
-def _fetch_dynamo_impl(lookback_days, env, now):
-    """Read events from the per-env DynamoDB table over [start, now].
+def _fetch_dynamo_trailing(env, sk_range, pks, cache_key):
+    """Cached (dynamo_trailing TTL, default 15min) trailing-lane read.
+
+    Separate cache bucket from the detail lane on purpose: this is ~165k rows
+    and ~21s — the dominant cost of a render — but it only feeds cadence and
+    last-seen, which move on the order of hours. The detail lane keeps the 60s
+    TTL, so what the user is looking at stays near-live while this doesn't get
+    re-read on every refresh.
+
+    Caches NORMALISED rows, not raw items, deliberately: coercing 165k items
+    costs ~17s of pure Python, so caching the raw items would still re-pay that
+    on every 60s detail-cache miss and the long TTL would buy almost nothing.
+    """
+    def run():
+        table = _ddb_table(env)
+        items = _ddb_query_window(table, pks, sk_range[0], sk_range[1],
+                                  _DDB_TRAILING_ATTRS, "trailing")
+        started = time.monotonic()
+        rows = [_normalise_ddb_trailing_row(item) for item in items]
+        logger.info("dynamo: [trailing] normalised %d row(s) in %.1fs",
+                    len(rows), time.monotonic() - started)
+        return rows
+    return _cached("dynamo_trailing", cache_key, run)
+
+
+def _fetch_dynamo_impl(lookback_days, env, now, detail_days=None):
+    """Read events from the per-env DynamoDB table over [now-lookback_days, now].
 
     Table is per-environment (MONTY_DDB_TABLE pattern, {env} filled from `env`),
     so the PROD/DEV toggle selects it; the per-env AWS profile resolution is
-    shared with the S3 leg (same two accounts). `occurred_at` is stored as an
-    ISO-8601 UTC string, so the window filter is a lexicographic BETWEEN."""
-    from datetime import timedelta, timezone
-    import boto3
-    from boto3.dynamodb.conditions import Attr
+    shared with the S3 leg (same two accounts).
+
+    `detail_days` splits the read into two disjoint lanes (see fetch_events):
+
+      * detail   [now-detail_days, now]              — full rows, incl. payload
+      * trailing [now-lookback_days, now-detail_days] — occurred_at + pipeline
+
+    The ranges do not overlap, so the union needs no dedupe. Measured on prod
+    (178,862 items): 155s for the old 8d full-attribute Scan, ~23s cold and
+    ~2s warm for the split Query. With detail_days=None every row comes back
+    full, which is the anomaly page's contract (it needs metric values across
+    the whole window, and its own gates count raw points).
+    """
+    from datetime import timedelta
 
     if now is None:
         now = datetime.utcnow()
     start = now - timedelta(days=lookback_days)
-    table_name = MONTY_DDB_TABLE.format(env=env)
+    pks = _ddb_pipelines(env)
+    table = _ddb_table(env)
 
-    profile = _s3_profile_for(env)
-    session = boto3.Session(profile_name=profile) if profile else boto3.Session()
-    if profile:
-        logger.info("dynamo: using AWS profile %r for env=%s", profile, env)
-    table = session.resource("dynamodb", region_name=MONTY_DDB_REGION).Table(table_name)
+    trailing: list[dict] = []
+    if detail_days is None:
+        items = _ddb_query_window(table, pks, *_sk_bounds(start, now, True),
+                                  _DDB_LEAN_ATTRS, "full")
+    else:
+        split = now - timedelta(days=detail_days)
+        # [split, now] full ... [start, split) lean — disjoint at `split`, so
+        # the two lanes can be unioned without de-duplicating (see _sk_bounds).
+        items = _ddb_query_window(table, pks, *_sk_bounds(split, now, True),
+                                  None, "detail")
+        if split > start:
+            trailing = _fetch_dynamo_trailing(
+                env, _sk_bounds(start, split, False), pks,
+                (env, lookback_days, detail_days,
+                 start.replace(second=0, microsecond=0)))
 
-    # Writer stamps tz-aware UTC ISO strings; anchor both bounds the same way
-    # so the string comparison is apples-to-apples.
-    start_iso = start.replace(tzinfo=timezone.utc).isoformat()
-    end_iso = now.replace(tzinfo=timezone.utc).isoformat()
-    scan_filter = (Attr("environment").eq(env)
-                   & Attr("occurred_at").between(start_iso, end_iso))
-
-    rows: list[dict] = []
-    kwargs = {"FilterExpression": scan_filter}
-    page = 0
-    while True:
-        page += 1
-        logger.info("dynamo: [page %d] scanning %s window=[%s, %s] env=%s ...",
-                    page, table_name, start, now, env)
-        resp = table.scan(**kwargs)
-        items = resp.get("Items", [])
-        rows.extend(_normalise_ddb_row(item) for item in items)
-        logger.info("dynamo: [page %d] %d item(s), %d total", page, len(items), len(rows))
-        last_key = resp.get("LastEvaluatedKey")
-        if not last_key:
-            break
-        kwargs["ExclusiveStartKey"] = last_key
-
+    # `trailing` rows come from the long-lived cache — copy before touching them,
+    # or the graft/env stamp below would mutate the cached objects in place.
+    rows = [_normalise_ddb_row(item) for item in items] + [dict(r) for r in trailing]
     rows = [r for r in rows if r.get("OCCURRED_AT") is not None]
+    _merge_representative_payloads(
+        rows, _ddb_representative_items(table, pks,
+                                        *_sk_bounds(start, now, True)))
+    # Every item was read from pk="<env>#<pipeline>", so it belongs to this env
+    # by construction — stamp it rather than fetch it (the Snowflake leg does the
+    # same). transform filters rows on ENVIRONMENT, so a lean row that omitted it
+    # would be silently dropped and the cadence history would vanish.
+    for row in rows:
+        row["ENVIRONMENT"] = env
     rows.sort(key=lambda r: r["OCCURRED_AT"])
-    logger.info("dynamo: %d event row(s) in window from %s", len(rows), table_name)
+    logger.info("dynamo: %d event row(s) in window from %s",
+                len(rows), MONTY_DDB_TABLE.format(env=env))
     return rows
+
+
+def _merge_representative_payloads(rows, items) -> None:
+    """Graft each pipeline's representative payload ONTO its existing row.
+
+    The representatives must not be appended as extra rows: the newest item for
+    a pipeline is normally already in the detail lane (appending it would double
+    -count that run), and for a long-dead pipeline it can fall outside the
+    window entirely (appending it would invent activity that the old full-window
+    Scan never reported either).
+
+    Matching on (pipeline, occurred_at) rather than sk keeps the trailing lane
+    lean — sk is ~68B, which over 165k rows would cost ~11MB (~23s) purely to
+    carry a uuid nothing reads. Two events for one pipeline at the identical
+    microsecond would both receive the payload, which is harmless: it is only
+    ever read for dbt/family identity, never counted.
+    """
+    by_key = {}
+    for row in rows:
+        by_key.setdefault((row.get("PIPELINE_NAME"), row.get("OCCURRED_AT")), row)
+    grafted = 0
+    for rep in (_normalise_ddb_row(item) for item in items):
+        row = by_key.get((rep.get("PIPELINE_NAME"), rep.get("OCCURRED_AT")))
+        if row is not None and not row.get("PAYLOAD"):
+            row["PAYLOAD"] = rep.get("PAYLOAD")
+            row["METRIC_NAME"] = rep.get("METRIC_NAME")
+            grafted += 1
+    logger.info("dynamo: [payload] grafted %d representative payload(s)", grafted)
 
 
 # --- SQLite (local cache) source -----------------------------------------

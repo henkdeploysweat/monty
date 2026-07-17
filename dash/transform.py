@@ -155,8 +155,19 @@ def _pick_pay(pay_by_pipe, pipeline, payload, metric):
     payload that carries the dbt model identity (`dbt_model_run` rows, or the
     `dbt_run_failures` collector). Without this preference the last row wins,
     and a pipeline whose final row isn't the dbt one loses the unique_id — so
-    its family/name silently fall back to the raw pipeline name."""
-    if (pipeline not in pay_by_pipe
+    its family/name silently fall back to the raw pipeline name.
+
+    An entry holding NO payload is also always upgraded to one that has a
+    payload. Sources may legitimately hand us payload-less rows — the DynamoDB
+    leg projects `payload` off its trailing lane because it is ~3x of all other
+    bytes (db.py) and grafts a representative back onto one row per pipeline.
+    That row is rarely the first one seen, so without this an entry would pin to
+    the empty payload and the identity would be lost anyway."""
+    current = pay_by_pipe.get(pipeline)
+    has_payload = bool(payload)
+    current_empty = current is not None and not current.split("||")[0]
+    if (current is None
+            or (current_empty and has_payload)
             or metric == "dbt_model_run" or pipeline == "dbt_run_failures"):
         pay_by_pipe[pipeline] = str(payload or "") + "||" + str(metric or "")
 

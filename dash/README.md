@@ -39,14 +39,44 @@ cd dash && python3 app.py
 #   http://localhost:5000/anomalies   anomaly detection
 ```
 
-**The first page load can be slow (~1-3 min) and that is normal, not a hang.**
-`both` unions Snowflake (`critical`/`error` + every dbt/auditor row) with the
-lambda `warning`/`info` legs: DynamoDB (live, post-cutover), the SQLite cache,
-and legacy S3. The S3 leg is the slow one — pre-cutover partitions are
-thousands of tiny Parquet files; the DynamoDB leg is one paginated Scan.
-Everything is cached afterwards (`MONTY_TTL_DYNAMO` / `MONTY_TTL_S3`, default
-60s), so every refresh is ~1s. If you don't need the `warning`/`info` rows, set
-`MONTY_SOURCE=snowflake` in `.env` for an instant (<1s) load.
+**The DynamoDB migration is COMPLETE (2026-07-17)** — both envs write live and
+the history was replayed in (see "Backfill" below). `MONTY_SOURCE=dynamo` alone
+now serves the whole `warning`/`info` window, so **the fastest useful config is
+`MONTY_SOURCE=both` with `MONTY_BOTH_WARN_SOURCE=dynamo`** (skips the slow S3
+leg entirely).
+
+**With the default `MONTY_BOTH_WARN_SOURCE=union`, the first page load is slow
+(~1-3 min) and that is normal, not a hang.** `both` unions Snowflake
+(`critical`/`error` + every dbt/auditor row) with the lambda `warning`/`info`
+legs: DynamoDB (live + backfilled), the SQLite cache, and legacy S3. The S3 leg
+is the slow one — thousands of tiny Parquet files; the DynamoDB leg is one
+paginated Scan. The sqlite/S3 legs are now redundant belt-and-braces and can be
+dropped. Everything is cached afterwards (`MONTY_TTL_DYNAMO` / `MONTY_TTL_S3`,
+default 60s), so every refresh is ~1s. If you don't need the `warning`/`info`
+rows at all, set `MONTY_SOURCE=snowflake` for an instant (<1s) load.
+
+## Backfill — replaying history into DynamoDB (`backfill_dynamo.py`)
+
+Already run for the cutover; kept for re-runs / other windows. It reads the old
+stores through the dashboard's own readers (so rows are normalised identically
+to the live writer) and replays `warning`/`info` into `monty-<env>-metrics-ddb`.
+
+```bash
+aws sso login --profile SWEATAnalytics          # or audiences-dev
+cd dash
+python3 backfill_dynamo.py --env prod --days 28 --dry-run   # reads only, no writes
+python3 backfill_dynamo.py --env prod --days 28             # apply
+```
+
+- **Idempotent** — `sk = "<occurred_at>#<source ID>"` (not the live writer's
+  `uuid4`), so a re-run overwrites the same items instead of duplicating. Safe
+  to resume after a failure.
+- **TTL replays correctly** — `occurred_at + 90d`, so a 3-week-old row lands
+  with ~69 days left, not a fresh 90.
+- **`critical`/`error` are excluded by design** — they belong in Snowflake.
+- `--source both|sqlite|s3` (default `both`). SQLite only holds what the ingest
+  job archived; reaching further back needs the S3 leg. It self-loads `.env`, so
+  the per-env AWS profile resolves automatically.
 
 To change source/behaviour, edit `dash/.env` — it is authoritative and overrides
 your shell env on every launch. Restart `python3 app.py` after any `.env` change
@@ -104,11 +134,94 @@ export MONTY_DDB_TABLE="monty-{env}-metrics-ddb"   # default
 flask --app app run
 ```
 
-The reader is a paginated `Scan` filtered server-side on `environment` +
-`occurred_at BETWEEN [start, now]` (ISO UTC strings), normalised to the same
-row contract as every other source. Per-env AWS credentials resolve exactly
-like the S3 reader below (`MONTY_S3_PROFILE_<ENV>` etc. — same two accounts).
-Results are cached for `MONTY_TTL_DYNAMO` (default 60s).
+Rows are normalised to the same contract as every other source. Per-env AWS
+credentials resolve exactly like the S3 reader below (`MONTY_S3_PROFILE_<ENV>`
+etc. — same two accounts).
+
+### How the reader is fast (and why it looks the way it does)
+
+The reader **Queries per pipeline over an `sk` range**; it does not Scan.
+Measured on prod (178,862 items, 2026-07-17):
+
+| | rows | pages | time |
+|---|---|---|---|
+| 24h window via `Scan` | 3,679 | 92 | **28.0s** |
+| 24h window via `Query` | 3,679 | 12 | **2.1s** |
+
+Both return identical rows. The reason Scan is slow is not the filter — it is
+that Scan's 1MB page limit applies to **scanned** data, *before*
+`FilterExpression` runs, so even a 24h window pages over the whole table. Every
+Scan of this table costs ~28s no matter how narrow the window, **and that floor
+grows with the table**. The cost model that fits every measurement:
+
+```
+Scan:   ~28s  +  bytes/0.47MBps                 <- floor is the whole table
+Query:          bytes/0.47MBps + rows/10400ps   <- no floor
+```
+
+**No GSI is needed, and none should be added.** `sk` is
+`"<occurred_at ISO>#<uuid>"`, so it *already is* a time index — an `sk` range
+over one `pk` is exactly the old `occurred_at` filter, per pipeline. A
+time-bucketed GSI would be strictly worse: Query on a single pk has no
+`Segment`, so bucketing by time would serialise what `pk="<env>#<pipeline>"`
+already parallelises 11 ways, while write-amplifying every item and risking GSI
+throttling that backpressures the metric writers.
+
+Three lanes, because they have very different costs and freshness needs:
+
+| lane | what | cost | cache |
+|---|---|---|---|
+| **detail** | the visible window, full rows incl. payload | ~3s | `MONTY_TTL_DYNAMO` (60s) |
+| **trailing** | the 7d tail, `occurred_at` + `pipeline_name` only | ~35s | `MONTY_TTL_DYNAMO_TRAILING` (900s) |
+| **representative** | newest row per pipeline, for payload identity | ~0.5s | with the detail lane |
+
+`app.py` asks for this via `db.fetch_events(..., detail_days=N)` — a *hint*
+meaning "older rows may be lean". The trailing tail feeds only cadence and
+last-seen, which move over hours, so it caches long; the detail lane is what
+the user is looking at, so it stays near-live. The two ranges are **disjoint**
+(`_sk_bounds(..., include_end=False)`), which is what lets the union skip
+de-duplication — an event landing exactly on the split would otherwise be
+counted twice.
+
+`payload` is projected off the trailing lane because it is ~3x of all other
+bytes; `environment` is too, since `pk` already encodes it (it is re-stamped
+after the read — `transform` filters on it, so a lean row that omitted it would
+be silently dropped and cadence history would vanish).
+
+Result: **155s → ~61s cold, ~7.6s warm, ~0s hot** (was ~155s on essentially
+every render, since the single 60s cache expired constantly).
+
+| knob | default | notes |
+|---|---|---|
+| `MONTY_TTL_DYNAMO` | `60` | detail lane |
+| `MONTY_TTL_DYNAMO_TRAILING` | `900` | trailing lane; only affects cadence/staleness freshness |
+| `MONTY_TTL_DDB_PIPELINES` | `3600` | pipeline list |
+| `MONTY_DDB_WORKERS` | `4` | **8 measured SLOWER than 4** — the link is the bottleneck, so more streams contend. Re-measure before raising. |
+| `MONTY_DDB_PIPELINES` | *(unset)* | comma-separated names; skips the ~30s discovery Scan. A pipeline missing from the list is **invisible** — prefer the cache. |
+
+Query needs to be told which partitions to read, and DynamoDB has no "distinct
+partition keys", so `_ddb_pipelines` discovers them with a `pk`-only Scan
+(~30s, cached 1h). `db.fetch_pipeline_last_seen` deliberately returns `{}` for
+this source and cannot be reused for it.
+
+### Known remaining cost
+
+The trailing lane is ~165k rows for 7 days and dominates a cold render — not in
+bytes (it is lean) but in **row count**: ~17s of Python coercion regardless of
+where it runs. Cutting it needs fewer *rows*, i.e. a pre-aggregated
+`(pipeline, 15-minute bucket)` marker — the lane only needs the *set* of
+buckets (`_session_starts` collapses on a 30-min gap; `last_seen` takes a max),
+so a marker needs nothing but its key: `pk="agg#<env>#<YYYYMMDD>"`,
+`sk="<pipeline>#<HH:MM>"` + `ttl`. ~9k items/7d ≈ 550KB. That grain also
+matches `SEASONAL_MAX_GRID=720` (7d → 14-min cells). Deliberately **not** built
+yet: it needs a writer change plus a replay, and the caches make the warm path
+~7.6s without it.
+
+**0.47 MB/s is a laptop uplink, not a DynamoDB limit** (three independent runs
+landed within 8%, and parallel Scan got *worse* — a saturated link, not CPU).
+Deploying the dashboard **in-region (us-east-1)** should remove most of what is
+left. That host will also need `grant_read_data` on the table:
+`infra/monty_stack.py` grants the Lambdas **write only**.
 
 ## Point the timeline/anomaly events at S3 (Parquet) — pre-cutover history
 

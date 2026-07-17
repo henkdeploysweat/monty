@@ -195,9 +195,13 @@ def _timeline_ctx(env, day=None, rng=(None, None), tz="sydney", hours=None):
     # newest row (now=None) so it isn't clamped out; live/Snowflake mode keeps
     # the real-UTC anchor so the range predicate is real.
     fetch_now = None if (_is_csv() and not day) else anchor
-    # pull enough history to cover the window itself plus 7d of cadence context
-    rows = db.fetch_events(lookback_days=math.ceil(W / 24) + 7,
-                           env=env, now=fetch_now)
+    # Pull enough history to cover the window itself plus 7d of cadence context.
+    # Only the window needs full rows: the 7d tail feeds cadence + last-seen
+    # only, so `detail_days` lets a source fetch it lean (see db.fetch_events).
+    # Rendering 24h used to drag back 8 days of payloads for nothing.
+    window_days = math.ceil(W / 24)
+    rows = db.fetch_events(lookback_days=window_days + 7, env=env, now=fetch_now,
+                           detail_days=window_days)
     # CSV-dev-only: snap the window to the sample's newest row for a sensible
     # demo. In live/Snowflake mode this must NOT run — OCCURRED_AT is real UTC
     # and the anchor must stay at current UTC, or a future-looking row would

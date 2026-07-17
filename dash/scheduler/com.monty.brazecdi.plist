@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.monty.brazecdi</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/henkduplooy/Documents/Berg/Monty/dash/scheduler/run_braze_cdi.sh</string>
+  </array>
+
+  <!-- Every 5 min. The point is to catch a run's TERMINAL status before it ages
+       out of the Braze job_sync_status window; CDI syncs are hourly-ish, so 60s
+       would just hammer the API for nothing. Each tick is one cheap REST call
+       per tracked integration and the upsert is a no-op when nothing changed. -->
+  <key>StartInterval</key>
+  <integer>300</integer>
+
+  <!-- Run once immediately when loaded, then on the interval. -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- launchd-level launch errors (the refresh's own log is dash/braze_cdi.log). -->
+  <key>StandardOutPath</key>
+  <string>/Users/henkduplooy/Documents/Berg/Monty/dash/brazecdi.launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/henkduplooy/Documents/Berg/Monty/dash/brazecdi.launchd.log</string>
+</dict>
+</plist>
