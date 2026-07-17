@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.python-version
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# CDK
+infra/cdk.out/
+infra/.cdk.staging/
+*.swp
+
+# Editor
+.idea/
+.vscode/
+.DS_Store
+
+# Local secrets / env files — never commit
+.env
+.env.*
+!.env.example

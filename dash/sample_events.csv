@@ -1,0 +1,7 @@
+ID,PIPELINE_NAME,METRIC_NAME,METRIC_VALUE,SEVERITY,RUN_ID,PAYLOAD,OCCURRED_AT,IS_ALERT,SENT_TO_SLACK,SENT_AT,ENVIRONMENT
+1,orders_etl,orders.row_count,1200,info,r1,{},2026-07-15 09:00:00,false,false,,prod
+2,orders_etl,orders.row_count,1180,info,r2,{},2026-07-15 15:30:00,false,false,,prod
+3,orders_etl,orders.freshness.max_date,0,info,r3,{},2026-07-15 15:45:00,false,false,,prod
+4,payments_dbt,payments.failures,3,warning,r4,{},2026-07-15 15:50:00,true,false,,prod
+5,payments_dbt,payments.row_count,880,info,r5,{},2026-07-15 15:55:00,false,false,,prod
+6,sessions_task,sessions.count,4200,info,r6,{},2026-07-15 15:58:00,false,false,,prod

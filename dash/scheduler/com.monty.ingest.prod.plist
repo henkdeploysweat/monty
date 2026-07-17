@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.monty.ingest.prod</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/henkduplooy/Documents/Berg/Monty/dash/scheduler/run_ingest.sh</string>
+    <string>prod</string>
+  </array>
+
+  <!-- Near real-time: fire every 60s. loadS3.py's flock prevents overlap. -->
+  <key>StartInterval</key>
+  <integer>60</integer>
+
+  <!-- Run once immediately when loaded, then on the interval. -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- launchd-level launch errors (the ingest's own log is dash/ingest.prod.log). -->
+  <key>StandardOutPath</key>
+  <string>/Users/henkduplooy/Documents/Berg/Monty/dash/ingest.launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/henkduplooy/Documents/Berg/Monty/dash/ingest.launchd.log</string>
+</dict>
+</plist>

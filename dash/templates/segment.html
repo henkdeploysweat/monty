@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monty — Segment Event Search</title>
+<style>
+:root{
+  --bg:#0f1116;--panel:#181b22;--panel-2:#20242d;--line:#2a2f3a;--line-2:#353a47;
+  --text:#e6e8ee;--muted:#8089a0;--dim:#5a6378;
+  --green:#4ade80;--amber:#fbbf24;--red:#f43f5e;--blue:#60a5fa;--purple:#a78bfa;--cyan:#22d3ee;
+}
+*{box-sizing:border-box}html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--text);
+  font-family:'Inter','SF Pro Display',-apple-system,BlinkMacSystemFont,sans-serif;
+  font-size:13px;min-height:100vh}
+.page{padding:22px 28px 60px;max-width:1480px;margin:0 auto}
+.head{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;gap:18px;flex-wrap:wrap}
+.head .title{display:flex;align-items:baseline;gap:14px}
+.head .title h1{margin:0;font-size:22px;font-weight:700;letter-spacing:-.01em}
+.head .title .sub{color:var(--muted);font-size:12px}
+.nav{display:flex;gap:6px}
+.nav a{color:var(--muted);text-decoration:none;font-size:12px;padding:5px 11px;border-radius:7px;border:1px solid var(--line)}
+.nav a:hover{color:var(--text);background:var(--panel)}
+.nav a.on{color:var(--cyan);border-color:rgba(34,211,238,.4);background:rgba(34,211,238,.08)}
+.searchbar{display:flex;gap:10px;align-items:center;margin-bottom:16px}
+.searchbar .box{flex:1;display:flex;align-items:center;gap:10px;background:var(--panel);
+  border:1px solid var(--line);border-radius:10px;padding:10px 14px}
+.searchbar .box:focus-within{border-color:rgba(34,211,238,.5)}
+.searchbar .box svg{flex:none;color:var(--muted)}
+.searchbar input{flex:1;background:none;border:none;outline:none;color:var(--text);
+  font-size:15px;font-family:inherit}
+.searchbar input::placeholder{color:var(--dim)}
+.searchbar .btn{background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+  border-radius:9px;padding:10px 16px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
+.searchbar .btn:hover{border-color:rgba(34,211,238,.5);color:var(--cyan)}
+.hint{color:var(--dim);font-size:11px;margin:-8px 2px 16px}
+.hint kbd{background:var(--panel-2);border:1px solid var(--line);border-radius:4px;padding:1px 5px;font-size:10px;color:var(--muted)}
+.stats{display:flex;gap:14px;margin-bottom:18px;flex-wrap:wrap}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 18px;min-width:120px}
+.stat .k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+.stat .v{font-size:22px;font-weight:700;margin-top:4px;font-variant-numeric:tabular-nums}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.panel-head{padding:13px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between}
+.panel-head h3{margin:0;font-size:14px;font-weight:600}
+.panel-head .sub{color:var(--muted);font-size:12px}
+table{width:100%;border-collapse:collapse}
+thead th{text-align:left;padding:10px 18px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--muted);font-weight:600;border-bottom:1px solid var(--line);background:var(--panel)}
+tbody td{padding:11px 18px;border-bottom:1px solid var(--line);vertical-align:top}
+tbody tr{cursor:pointer}
+tbody tr:hover{background:var(--panel-2)}
+tbody tr:last-child td{border-bottom:none}
+.ev-name{font-weight:600;font-size:13px;font-family:'SF Mono',ui-monospace,Menlo,monospace;word-break:break-all}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{font-size:11px;padding:2px 9px;border-radius:999px;font-weight:600;
+  background:var(--panel-2);border:1px solid var(--line);color:var(--muted)}
+.chip.src{color:var(--blue);border-color:rgba(96,165,250,.3);background:rgba(96,165,250,.08)}
+.chip.match{color:var(--amber);border-color:rgba(251,191,36,.35);background:rgba(251,191,36,.1)}
+.count{font-variant-numeric:tabular-nums;font-weight:700}
+.count.solo{color:var(--amber)}
+.mono{font-family:'SF Mono',ui-monospace,Menlo,monospace}
+.src-badge{font-size:9px;font-weight:700;letter-spacing:.06em;padding:1px 7px;border-radius:99px;margin-left:8px;
+  background:rgba(251,191,36,.15);color:var(--amber);border:1px solid rgba(251,191,36,.35)}
+.src-badge.live{background:rgba(74,222,128,.14);color:var(--green);border-color:rgba(74,222,128,.35)}
+.src-badge.saved{background:rgba(34,211,238,.14);color:var(--cyan);border-color:rgba(34,211,238,.35)}
+.segbtn{font-size:12px;font-weight:600;color:var(--text);background:var(--panel);cursor:pointer;
+  border:1px solid var(--line);border-radius:7px;padding:5px 11px;font-family:inherit}
+.segbtn:hover{border-color:rgba(34,211,238,.5);color:var(--cyan)}
+.segbtn.ghost{color:var(--muted)}
+.segbtn:disabled{opacity:.5;cursor:default}
+.segbtn.busy{color:var(--cyan);border-color:rgba(34,211,238,.5)}
+.empty{padding:44px;text-align:center;color:var(--muted)}
+.err{margin-bottom:18px;background:rgba(244,63,94,.08);border:1px solid rgba(244,63,94,.35);
+  color:#fda4af;border-radius:10px;padding:12px 16px;font-size:12px}
+.err b{color:var(--red)}
+mark{background:rgba(34,211,238,.28);color:var(--text);border-radius:3px;padding:0 1px}
+/* drawer (drill-down: all properties for one event) */
+.drawer-scrim{position:fixed;inset:0;background:rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:opacity .18s;z-index:40}
+.drawer-scrim.open{opacity:1;pointer-events:auto}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:560px;max-width:94vw;background:var(--panel);
+  border-left:1px solid var(--line-2);transform:translateX(100%);transition:transform .2s ease;
+  z-index:41;display:flex;flex-direction:column}
+.drawer.open{transform:translateX(0)}
+.drawer .dh{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.drawer .dh h3{margin:0;font-size:15px;font-weight:700;word-break:break-all;font-family:'SF Mono',ui-monospace,Menlo,monospace}
+.drawer .dh .meta{color:var(--muted);font-size:12px;margin-top:5px}
+.drawer .x{background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;line-height:1;padding:0 2px}
+.drawer .x:hover{color:var(--text)}
+.drawer .body{padding:8px 20px 24px;overflow:auto}
+.src-group{margin-top:16px}
+.src-group h4{margin:0 0 8px;font-size:12px;color:var(--blue);font-weight:700;
+  position:sticky;top:0;background:var(--panel);padding:6px 0}
+.prop{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px dashed var(--line)}
+.prop .pn{font-family:'SF Mono',ui-monospace,Menlo,monospace;font-size:12px}
+.prop .pt{color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
+.loading{color:var(--muted);padding:20px 0}
+/* tab bar */
+.tabbar{display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--line)}
+.tabbar .tab{padding:9px 16px;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;
+  text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabbar .tab:hover{color:var(--text)}
+.tabbar .tab.on{color:var(--cyan);border-bottom-color:var(--cyan)}
+.tabbar .tab b{font-weight:700;color:var(--muted);font-size:11px;margin-left:4px}
+.tabbar .tab.on b{color:var(--cyan)}
+.tabpane{display:none}
+.tabpane.on{display:block}
+/* join result */
+.join-legend{display:flex;gap:16px;flex-wrap:wrap;padding:12px 18px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)}
+.join-legend span{display:inline-flex;align-items:center;gap:6px}
+.join-legend b{color:var(--text);font-variant-numeric:tabular-nums}
+.mtype{font-size:10px;font-weight:700;letter-spacing:.04em;padding:2px 8px;border-radius:999px;text-transform:uppercase}
+.mtype.exact{background:rgba(74,222,128,.15);color:var(--green)}
+.mtype.like{background:rgba(251,191,36,.15);color:var(--amber)}
+.mtype.none{background:rgba(244,63,94,.13);color:var(--red)}
+.mtype.spec{background:rgba(167,139,250,.15);color:var(--purple)}
+.join-dot{width:9px;height:9px;border-radius:3px;display:inline-block}
+.join-dot.exact{background:var(--green)}.join-dot.like{background:var(--amber)}
+.join-dot.none{background:var(--red)}.join-dot.spec{background:var(--purple)}
+.dim{color:var(--dim)}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="head">
+    <div class="title">
+      <h1>Segment Event Search</h1>
+      <span class="sub">tracking plan · <span class="mono">{{ segment_db }}</span>
+        {% if segment_mode == 'cache' %}<span class="src-badge saved">SAVED CSV{% if segment_synced %} · synced {{ segment_synced.strftime('%d %b %H:%M') }} UTC{% endif %}</span>
+        {% elif segment_mode == 'sample' %}<span class="src-badge">CSV SAMPLE</span>
+        {% else %}<span class="src-badge live">● LIVE SNOWFLAKE</span>{% endif %}
+      </span>
+    </div>
+    <div class="nav">
+      {% if segment_mode == 'cache' %}
+        <button class="segbtn" id="segResync" title="Re-pull from Snowflake and refresh the saved CSV">⟳ Resync</button>
+        <button class="segbtn ghost" id="segLive" title="Discard the saved CSV and query Snowflake live">Go live</button>
+      {% else %}
+        <button class="segbtn" id="segSave" title="Snapshot to CSV and serve from it (fast, no Snowflake)">⤓ Save to CSV</button>
+      {% endif %}
+      <a href="/">Timeline</a>
+      <a href="/anomalies">Anomalies</a>
+      <a href="/segment" class="on">Segment</a>
+    </div>
+  </div>
+
+  {% if error %}
+  <div class="err"><b>Could not reach Segment warehouse.</b> {{ error }}</div>
+  {% endif %}
+
+  <form class="searchbar" method="get" action="/segment" id="searchForm">
+    <div class="box">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      <input type="text" name="q" id="q" value="{{ q }}" autocomplete="off"
+             placeholder="Search events and properties — e.g. workout, cart_id, checkout…" autofocus>
+    </div>
+    <button type="submit" class="btn">Search</button>
+  </form>
+  <div class="hint">Typing filters the catalog live by event &amp; source. Press <kbd>Enter</kbd> to also search <b>property names</b> across the warehouse.</div>
+
+  <div class="stats">
+    <div class="stat"><div class="k">Custom events</div><div class="v">{{ total_events }}</div></div>
+    <div class="stat"><div class="k">Sources</div><div class="v">{{ total_sources }}</div></div>
+    {% if results is not none %}
+    <div class="stat"><div class="k">Matches for “{{ q }}”</div><div class="v">{{ results|length }}</div></div>
+    {% endif %}
+  </div>
+
+  <div class="tabbar">
+    <a class="tab on" data-pane="segment">Segment · actual <b>{{ total_events }}</b></a>
+    <a class="tab" data-pane="spec">Spec · documented <b>{{ spec|length }}</b></a>
+    <a class="tab" data-pane="join">Join <b id="joinCount"></b></a>
+  </div>
+
+  <div class="tabpane on" data-pane="segment">
+  {% if results is not none %}
+  <!-- server-side search results (matched by event name OR property name) -->
+  <div class="panel">
+    <div class="panel-head">
+      <h3>Search results</h3>
+      <span class="sub">events matching “{{ q }}” by name or property</span>
+    </div>
+    {% if results %}
+    <table>
+      <thead><tr><th style="width:32%">Event</th><th style="width:10%">Sources</th><th style="width:28%">Emitted by</th><th>Matched properties</th></tr></thead>
+      <tbody>
+        {% for row in results %}
+        <tr data-event="{{ row.EVENT_NAME }}">
+          <td><span class="ev-name">{{ row.EVENT_NAME }}</span></td>
+          <td><span class="count {{ 'solo' if row.SOURCE_COUNT == 1 else '' }}">{{ row.SOURCE_COUNT }}</span></td>
+          <td><div class="chips">{% for s in row.SOURCES %}<span class="chip src">{{ s }}</span>{% endfor %}</div></td>
+          <td><div class="chips">
+            {% for p in row.MATCHED_PROPS %}<span class="chip match">{{ p }}</span>{% endfor %}
+            {% if not row.MATCHED_PROPS %}<span class="chip">name match</span>{% endif %}
+          </div></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">No events or properties match “{{ q }}”.</div>
+    {% endif %}
+  </div>
+  {% else %}
+  <!-- full catalog: filtered live client-side by the search box -->
+  <div class="panel">
+    <div class="panel-head">
+      <h3>Event catalog</h3>
+      <span class="sub"><span id="shownCount">{{ catalog|length }}</span> events · click a row for its full property list</span>
+    </div>
+    {% if catalog %}
+    <table id="catalogTable">
+      <thead><tr><th style="width:44%">Event</th><th style="width:10%">Sources</th><th style="width:12%">Properties</th><th>Emitted by</th></tr></thead>
+      <tbody>
+        {% for row in catalog %}
+        <tr data-event="{{ row.EVENT_NAME }}" data-search="{{ row.EVENT_NAME|lower }} {{ row.SOURCES|join(' ')|lower }}">
+          <td><span class="ev-name">{{ row.EVENT_NAME }}</span></td>
+          <td><span class="count {{ 'solo' if row.SOURCE_COUNT == 1 else '' }}">{{ row.SOURCE_COUNT }}</span></td>
+          <td><span class="count">{{ row.PROPERTY_COUNT }}</span></td>
+          <td><div class="chips">{% for s in row.SOURCES %}<span class="chip src">{{ s }}</span>{% endfor %}</div></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="empty" id="noMatch" style="display:none">No events match your filter. Press <kbd>Enter</kbd> to search property names too.</div>
+    {% else %}
+    <div class="empty">No custom events found{% if not error %} — check <span class="mono">SEGMENT_DB</span> ({{ segment_db }}) and your Snowflake role{% endif %}.</div>
+    {% endif %}
+  </div>
+  {% endif %}
+  </div><!-- /pane segment -->
+
+  <!-- TAB 2: the documented spec CSV, styled like the segment catalog -->
+  <div class="tabpane" data-pane="spec">
+    <div class="panel">
+      <div class="panel-head">
+        <h3>Documented spec</h3>
+        <span class="sub"><span id="specShown">{{ spec|length }}</span> events · <span class="mono">combined_tables_final.csv</span> · click a row for its parameters</span>
+      </div>
+      {% if spec %}
+      <table id="specTable">
+        <thead><tr><th style="width:46%">Event</th><th style="width:14%">Parameters</th><th>Status</th></tr></thead>
+        <tbody>
+          {% for s in spec %}
+          <tr data-spec="{{ s.EVENT }}" data-search="{{ s.EVENT|lower }}">
+            <td><span class="ev-name">{{ s.EVENT }}</span></td>
+            <td><span class="count">{{ s.PARAM_COUNT }}</span></td>
+            <td><span class="chip">{{ s.STATUS or '—' }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty">combined_tables_final.csv not found next to the app.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- TAB 3: join of the two — EVENT (actual) × Event name (spec) -->
+  <div class="tabpane" data-pane="join">
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h3>Actual ↔ Spec join</h3>
+          <span class="sub">exact on <span class="mono">EVENT = Event</span>, then a fuzzy <span class="mono">LIKE</span> match for the leftovers</span>
+        </div>
+        <button class="btn" id="runJoin">Run join</button>
+      </div>
+      <div class="join-legend" id="joinLegend"></div>
+      <table id="joinTable" style="display:none">
+        <thead><tr><th style="width:38%">EVENT (actual)</th><th style="width:38%">Event name (spec)</th><th>Matching type</th></tr></thead>
+        <tbody id="joinBody"></tbody>
+      </table>
+      <div class="empty" id="joinEmpty">Click <b>Run join</b> to match the {{ total_events }} live events against the {{ spec|length }} documented ones.</div>
+    </div>
+  </div>
+</div>
+
+<!-- property drill-down drawer -->
+<div class="drawer-scrim" id="scrim"></div>
+<aside class="drawer" id="drawer">
+  <div class="dh">
+    <div>
+      <h3 id="dTitle"></h3>
+      <div class="meta" id="dMeta"></div>
+    </div>
+    <button class="x" id="dClose">&times;</button>
+  </div>
+  <div class="body" id="dBody"></div>
+</aside>
+
+<script>
+// --- Save / Resync / Go-live: snapshot the tracking plan to a local CSV -----
+function segAction(btn, url, verb) {
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    const orig = btn.textContent;
+    btn.disabled = true; btn.classList.add('busy'); btn.textContent = verb + '…';
+    try {
+      const res = await fetch(url, {method: 'POST'});
+      const data = await res.json();
+      if (!res.ok || data.ok === false) throw new Error(data.error || ('HTTP ' + res.status));
+      if (data.rows != null) btn.textContent = 'Saved ' + data.rows + ' rows';
+      setTimeout(() => location.reload(), 500);   // re-render from the new source
+    } catch (e) {
+      btn.disabled = false; btn.classList.remove('busy');
+      btn.textContent = orig;
+      alert(verb + ' failed: ' + (e.message || e));
+    }
+  });
+}
+segAction(document.getElementById('segSave'),   '/api/segment/save',   'Saving');
+segAction(document.getElementById('segResync'), '/api/segment/resync', 'Resyncing');
+segAction(document.getElementById('segLive'),   '/api/segment/live',   'Switching');
+
+// --- live client-side filter over the catalog (event name + source) -------
+const q = document.getElementById('q');
+const table = document.getElementById('catalogTable');
+const shown = document.getElementById('shownCount');
+const noMatch = document.getElementById('noMatch');
+if (q && table) {
+  q.addEventListener('input', () => {
+    const needle = q.value.trim().toLowerCase();
+    let n = 0;
+    table.querySelectorAll('tbody tr').forEach(tr => {
+      const hit = !needle || tr.dataset.search.includes(needle);
+      tr.style.display = hit ? '' : 'none';
+      if (hit) n++;
+    });
+    if (shown) shown.textContent = n;
+    if (noMatch) noMatch.style.display = n ? 'none' : 'block';
+  });
+}
+
+// --- drill-down drawer: fetch full property list for the clicked event ----
+const scrim = document.getElementById('scrim');
+const drawer = document.getElementById('drawer');
+const dTitle = document.getElementById('dTitle');
+const dMeta = document.getElementById('dMeta');
+const dBody = document.getElementById('dBody');
+
+function closeDrawer() {
+  scrim.classList.remove('open');
+  drawer.classList.remove('open');
+}
+scrim.addEventListener('click', closeDrawer);
+document.getElementById('dClose').addEventListener('click', closeDrawer);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+
+function esc(s){return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+
+async function openEvent(name) {
+  dTitle.textContent = name;
+  dMeta.textContent = '';
+  dBody.innerHTML = '<div class="loading">Loading properties…</div>';
+  scrim.classList.add('open');
+  drawer.classList.add('open');
+  try {
+    const res = await fetch('/api/segment/properties?event=' + encodeURIComponent(name));
+    const data = await res.json();
+    if (data.error) { dBody.innerHTML = '<div class="err">' + esc(data.error) + '</div>'; return; }
+    const props = data.properties || [];
+    if (!props.length) { dBody.innerHTML = '<div class="empty">No properties found.</div>'; return; }
+    // group by source
+    const bySrc = {};
+    props.forEach(p => { (bySrc[p.SOURCE] = bySrc[p.SOURCE] || []).push(p); });
+    const srcNames = Object.keys(bySrc).sort();
+    dMeta.textContent = props.length + ' columns · ' + srcNames.length + ' source' + (srcNames.length === 1 ? '' : 's');
+    let html = '';
+    srcNames.forEach(src => {
+      html += '<div class="src-group"><h4>' + esc(src) + '</h4>';
+      bySrc[src].forEach(p => {
+        html += '<div class="prop"><span class="pn">' + esc(p.PROPERTY_NAME) +
+                '</span><span class="pt">' + esc(p.DATA_TYPE || '') + '</span></div>';
+      });
+      html += '</div>';
+    });
+    dBody.innerHTML = html;
+  } catch (e) {
+    dBody.innerHTML = '<div class="err">' + esc(e.message || e) + '</div>';
+  }
+}
+
+document.querySelectorAll('tbody tr[data-event]').forEach(tr => {
+  tr.addEventListener('click', () => openEvent(tr.dataset.event));
+});
+
+// ==== embedded data for tab 2 (spec) + tab 3 (join) =======================
+const SPEC = {{ spec|tojson }};                          // [{EVENT, STATUS, PARAM_COUNT, PARAMS}]
+const SEG_EVENTS = {{ catalog|map(attribute='EVENT_NAME')|list|tojson }};
+const SPEC_BY_EVENT = {}; SPEC.forEach(s => SPEC_BY_EVENT[s.EVENT] = s);
+
+// --- tab switching --------------------------------------------------------
+const searchForm = document.getElementById('searchForm');
+const hint = document.querySelector('.hint');
+document.querySelectorAll('.tabbar .tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    const pane = tab.dataset.pane;
+    document.querySelectorAll('.tabbar .tab').forEach(t => t.classList.toggle('on', t === tab));
+    document.querySelectorAll('.tabpane').forEach(p => p.classList.toggle('on', p.dataset.pane === pane));
+    // the search box only applies to the live catalog
+    const showSearch = pane === 'segment';
+    if (searchForm) searchForm.style.display = showSearch ? '' : 'none';
+    if (hint) hint.style.display = showSearch ? '' : 'none';
+    if (pane === 'join' && !joinRan) runJoin();
+  });
+});
+
+// --- spec drawer (params come from embedded data, no fetch) ---------------
+function openSpec(name) {
+  const s = SPEC_BY_EVENT[name];
+  dTitle.textContent = name;
+  scrim.classList.add('open'); drawer.classList.add('open');
+  if (!s || !s.PARAMS.length) { dMeta.textContent = ''; dBody.innerHTML = '<div class="empty">No parameters documented.</div>'; return; }
+  dMeta.textContent = s.PARAM_COUNT + ' parameter' + (s.PARAM_COUNT === 1 ? '' : 's') + (s.STATUS ? ' · ' + s.STATUS : '');
+  let html = '<div class="src-group">';
+  s.PARAMS.forEach(p => {
+    html += '<div class="prop"><span class="pn">' + esc(p.name) + '</span><span class="pt">' + esc(p.type || '') + '</span></div>';
+    if (p.desc) html += '<div class="pl" style="margin:0 0 8px">' + esc(p.desc) + '</div>';
+  });
+  dBody.innerHTML = html + '</div>';
+}
+document.querySelectorAll('tbody tr[data-spec]').forEach(tr => {
+  tr.addEventListener('click', () => openSpec(tr.dataset.spec));
+});
+// live filter on the spec tab reuses the search box value only within its tab
+const specTable = document.getElementById('specTable');
+
+// --- the join: EXACT on EVENT=Event, then LIKE for the leftovers ----------
+let joinRan = false;
+function norm(s){ return String(s).toLowerCase().replace(/[^a-z0-9]/g,''); }
+function computeJoin() {
+  const specUpper = {}; SPEC.forEach(s => specUpper[s.EVENT.toUpperCase()] = s.EVENT);
+  const specNorm = SPEC.map(s => ({ raw: s.EVENT, n: norm(s.EVENT) }));
+  const matchedSpec = new Set();
+  const rows = [];
+  SEG_EVENTS.forEach(ev => {
+    const up = ev.toUpperCase();
+    if (specUpper[up]) {                                   // 1) exact
+      rows.push({ event: ev, spec: specUpper[up], type: 'exact' });
+      matchedSpec.add(specUpper[up]);
+      return;
+    }
+    const ne = norm(ev);                                   // 2) fuzzy LIKE
+    const hit = specNorm.find(s => s.n && (s.n.includes(ne) || ne.includes(s.n)));
+    if (hit) { rows.push({ event: ev, spec: hit.raw, type: 'like' }); matchedSpec.add(hit.raw); }
+    else     { rows.push({ event: ev, spec: '', type: 'none' }); }
+  });
+  // spec events never matched by any live event
+  SPEC.forEach(s => { if (!matchedSpec.has(s.EVENT)) rows.push({ event: '', spec: s.EVENT, type: 'spec' }); });
+  return rows;
+}
+function runJoin() {
+  const rows = computeJoin();
+  joinRan = true;
+  const order = { exact: 0, like: 1, none: 2, spec: 3 };
+  rows.sort((a, b) => order[a.type] - order[b.type] || (a.event || a.spec).localeCompare(b.event || b.spec));
+  const counts = { exact: 0, like: 0, none: 0, spec: 0 };
+  rows.forEach(r => counts[r.type]++);
+  const label = { exact: 'exact', like: 'like', none: 'no match', spec: 'spec only' };
+  const body = document.getElementById('joinBody');
+  body.innerHTML = rows.map(r =>
+    '<tr><td>' + (r.event ? '<span class="ev-name">' + esc(r.event) + '</span>' : '<span class="dim">—</span>') +
+    '</td><td>' + (r.spec ? '<span class="ev-name">' + esc(r.spec) + '</span>' : '<span class="dim">—</span>') +
+    '</td><td><span class="mtype ' + r.type + '">' + label[r.type] + '</span></td></tr>').join('');
+  document.getElementById('joinLegend').innerHTML =
+    '<span><i class="join-dot exact"></i>exact <b>' + counts.exact + '</b></span>' +
+    '<span><i class="join-dot like"></i>like <b>' + counts.like + '</b></span>' +
+    '<span><i class="join-dot none"></i>no match <b>' + counts.none + '</b></span>' +
+    '<span><i class="join-dot spec"></i>spec only <b>' + counts.spec + '</b></span>';
+  document.getElementById('joinTable').style.display = '';
+  document.getElementById('joinEmpty').style.display = 'none';
+  document.getElementById('joinCount').textContent = counts.exact + counts.like;
+}
+document.getElementById('runJoin').addEventListener('click', runJoin);
+</script>
+</body>
+</html>

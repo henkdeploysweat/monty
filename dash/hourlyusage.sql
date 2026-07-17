@@ -1,0 +1,10 @@
+SELECT
+    DATE_TRUNC('hour', TO_TIMESTAMP_NTZ(CONVERT_TIMEZONE('UTC', start_time))) AS HOUR,
+    SUM(credits_used)                AS CREDITS_USED,
+    SUM(credits_used_compute)        AS CREDITS_COMPUTE,
+    SUM(credits_used_cloud_services) AS CREDITS_CLOUD_SERVICES
+FROM SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_METERING_HISTORY
+WHERE warehouse_name = 'MONTY_WH'
+  AND TO_TIMESTAMP_NTZ(CONVERT_TIMEZONE('UTC', start_time)) >= '2026-07-01'
+GROUP BY 1
+ORDER BY HOUR;

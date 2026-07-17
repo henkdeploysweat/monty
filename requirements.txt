@@ -1,0 +1,9 @@
+# Lambda runtime dependencies ONLY (this file is baked into the Docker image).
+# The four Lambdas import just these two third-party packages; everything
+# else (Slack + Anthropic calls) uses the stdlib (urllib). Dashboard/dev/CDK
+# deps live in dash/requirements.txt and infra/requirements.txt — do NOT
+# `pip freeze` your local env into this file, it bloats the image and breaks
+# the build (ResolutionImpossible).
+# (pyarrow was removed with the S3 Parquet writer — DynamoDB uses boto3.)
+snowflake-connector-python>=3.7
+boto3>=1.34

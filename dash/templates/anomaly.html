@@ -1,0 +1,1018 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monty | Anomaly Detection</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      // Remap Tailwind's palette onto the Pipeline Timeline's colours so both
+      // dashboards read as one system (cyan accent, slate-blue panels) without
+      // rewriting every utility class on the page.
+      tailwind.config = { theme: { extend: { colors: {
+        slate: {300:'#e6e8ee',400:'#a2aabb',500:'#8089a0',600:'#5a6378',700:'#2a2f3a',800:'#20242d',900:'#181b22'},
+        orange:{400:'#22d3ee',500:'#22d3ee',600:'#0e7490'},   // accent -> cyan
+        rose:  {300:'#fda4af',400:'#fb7185',500:'#f43f5e',600:'#be123c'},
+        emerald:{300:'#86efac',400:'#4ade80',500:'#22c55e',600:'#16a34a'},
+        sky:   {400:'#60a5fa',500:'#3b82f6'},
+      }}}};
+    </script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@300;400;600;700&display=swap');
+        /* same tokens as templates/timeline.html */
+        :root{--bg:#0f1116;--surface:#181b22;--panel-2:#20242d;--border:#2a2f3a;--border-2:#353a47;
+              --accent:#22d3ee;--danger:#f43f5e;--success:#4ade80;--amber:#fbbf24;--purple:#a78bfa}
+        /* page backdrop tells you WHICH ENV you're on at a glance: green = prod,
+           red = dev. Cards keep their own dark surface on top. */
+        body{font-family:'Inter','SF Pro Display',-apple-system,BlinkMacSystemFont,sans-serif;
+             background:#00341f;color:#e6e8ee;overflow-x:hidden}
+        body.env-dev{background:#34001f}
+        code,.mono{font-family:'JetBrains Mono',ui-monospace,Menlo,monospace}
+        .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:12px}
+        .anomaly-envelope{fill:rgba(34,211,238,.08);stroke:rgba(34,211,238,.2)}
+        .table-row:hover{background:rgba(255,255,255,.03)}
+        .pulse-danger{animation:pulse-red 2s infinite}
+        @keyframes pulse-red{0%{box-shadow:0 0 0 0 rgba(244,63,94,.4)}70%{box-shadow:0 0 0 10px rgba(244,63,94,0)}100%{box-shadow:0 0 0 0 rgba(244,63,94,0)}}
+        /* chart x-axis: date labels under the trace */
+        .chaxis{position:relative;height:16px;margin-top:6px}
+        .chaxis span{position:absolute;transform:translateX(-50%);font-size:9.5px;color:#5a6378;
+            font-family:'JetBrains Mono',monospace;white-space:nowrap}
+        .chaxis span:first-child{transform:translateX(0)}
+        .chaxis span:nth-last-of-type(1){transform:translateX(-100%)}
+        ::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:var(--bg)}::-webkit-scrollbar-thumb{background:#333;border-radius:10px}
+        .metric-pick{transition:background .15s,border-color .15s}
+        .metric-pick:hover{background:rgba(255,255,255,.05)}
+        tr.metric-pick.active{background:rgba(34,211,238,.08)}
+        tr.metric-pick.active td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
+        div.metric-pick.active{outline:1px solid var(--accent);outline-offset:-1px}
+        /* healthy = green rail, anomaly = red rail */
+        tr.is-ok td:first-child{box-shadow:inset 3px 0 0 rgba(74,222,128,.55)}
+        tr.is-anom td:first-child{box-shadow:inset 3px 0 0 var(--danger)}
+        tr.is-ok:hover{background:rgba(74,222,128,.06)}
+        tr.is-anom:hover{background:rgba(244,63,94,.06)}
+        tr.metric-pick.active td:first-child{box-shadow:inset 3px 0 0 var(--accent)!important}
+        /* search box */
+        .msearch{display:flex;align-items:center;gap:8px;background:var(--panel-2);border:1px solid var(--border);
+            border-radius:6px;padding:7px 10px}
+        .msearch:focus-within{border-color:rgba(34,211,238,.5)}
+        .msearch svg{flex:none;color:#475569}
+        .msearch input{flex:1;background:none;border:none;outline:none;color:#e6e8ee;font-size:12px;font-family:'JetBrains Mono',monospace}
+        .msearch input::placeholder{color:#475569}
+        /* sortable headers */
+        th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
+        th.sortable:hover{color:#94a3b8}
+        th.sortable::after{content:'↕';opacity:.25;margin-left:5px;font-size:9px}
+        th.sortable.asc::after{content:'↑';opacity:1;color:var(--accent)}
+        th.sortable.desc::after{content:'↓';opacity:1;color:var(--accent)}
+        /* status filter pills */
+        .mfilter{display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden}
+        .mfilter a{padding:3px 9px;font-size:9px;font-weight:700;letter-spacing:.05em;color:#64748b;cursor:pointer;
+            border-right:1px solid var(--border);text-decoration:none}
+        .mfilter a:last-child{border-right:none}
+        .mfilter a:hover{color:#e5e7eb}
+        .mfilter a.on{background:var(--panel-2);color:var(--accent)}
+        .mfilter a[data-filter="ok"].on{color:var(--success)}
+        .mfilter a[data-filter="anom"].on{color:var(--danger)}
+        .hidden{display:none}
+        /* chart hover tooltip */
+        .chtip{position:absolute;pointer-events:none;opacity:0;transition:opacity .1s;z-index:20;
+            background:rgba(15,17,22,.97);border:1px solid #333;border-radius:6px;padding:7px 10px;
+            font-family:'JetBrains Mono',monospace;white-space:nowrap;transform:translate(-50%,-115%);
+            box-shadow:0 6px 20px rgba(0,0,0,.6)}
+        .chtip.on{opacity:1}
+        .chtip .t{font-size:9px;color:#64748b;margin-bottom:3px}
+        .chtip .v{font-size:14px;font-weight:700;color:#e5e7eb}
+        .chtip .v .u{font-size:9px;color:#475569;font-weight:400}
+        .chtip .m{font-size:9px;color:#64748b;margin-top:3px}
+        .chtip.out{border-color:rgba(244,63,94,.6)}
+        .chtip.out .v{color:#f43f5e}
+        /* snowflake query panel */
+        .sqlwrap{background:var(--bg);border:1px solid var(--border);border-radius:6px;overflow-x:auto}
+        #sqlBox{margin:0;padding:10px 12px;font-size:10.5px;line-height:1.65;color:#94a3b8;white-space:pre}
+        #sqlBox .kw{color:#22d3ee}
+        #sqlBox .str{color:#4ade80}
+        .sqltab{color:#475569;cursor:pointer;font-weight:700;text-decoration:none;border-bottom:1px solid transparent;padding-bottom:1px}
+        .sqltab:hover{color:#94a3b8}
+        .sqltab.on{color:var(--accent);border-bottom-color:var(--accent)}
+        /* grouped metric rows: pipeline > subject > metric */
+        .grp-row,.sub-row{cursor:pointer;user-select:none}
+        .grp-row td{background:var(--panel-2);border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
+        .grp-row:hover td{background:#272c38}
+        .sub-row td{background:rgba(255,255,255,.015);padding-left:22px}
+        .sub-row:hover td{background:rgba(255,255,255,.04)}
+        .chev{display:inline-block;width:11px;color:#475569;font-size:8px;transition:transform .12s;transform-origin:center}
+        .grp-row.open .chev,.sub-row.open .chev{transform:rotate(90deg);color:var(--accent)}
+        .gname{color:#e5e7eb;font-weight:700;font-size:11px;margin-left:5px}
+        .sname{color:#94a3b8;font-size:10.5px;margin-left:5px}
+        .gmeta{color:#475569;font-size:9px;margin-left:9px;text-transform:uppercase;letter-spacing:.05em}
+        .gbadge{font-size:8.5px;font-weight:700;text-transform:uppercase;padding:1px 6px;border-radius:99px;margin-left:9px}
+        .gbadge.anom{background:rgba(244,63,94,.15);color:#f43f5e}
+        .gbadge.ok{background:rgba(74,222,128,.12);color:#4ade80}
+        .grp-row.has-anom td:first-child{box-shadow:inset 3px 0 0 var(--danger)}
+        .expandall{color:#475569;cursor:pointer;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+        .expandall:hover{color:#e5e7eb}
+        /* detector knobs */
+        .knob{margin-bottom:11px}
+        .knob label{display:flex;justify-content:space-between;align-items:baseline;
+            font-size:9.5px;color:#8089a0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px}
+        .knob label b{color:var(--accent);font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:none}
+        .knob input[type=range]{width:100%;height:3px;-webkit-appearance:none;appearance:none;
+            background:var(--border);border-radius:99px;outline:none;cursor:pointer}
+        .knob input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;
+            border-radius:50%;background:var(--accent);cursor:pointer;border:2px solid var(--bg)}
+        .knob input[type=range]::-moz-range-thumb{width:10px;height:10px;border-radius:50%;
+            background:var(--accent);cursor:pointer;border:2px solid var(--bg)}
+        .khint{display:block;font-size:8.5px;color:#475569;margin-top:2px}
+        .detapply{width:100%;margin-top:4px;padding:6px 0;border-radius:6px;cursor:pointer;
+            background:rgba(34,211,238,.12);border:1px solid rgba(34,211,238,.35);color:var(--accent);
+            font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.07em}
+        .detapply:hover{background:rgba(34,211,238,.2)}
+        .detapply.dirty{background:var(--accent);color:#0f1116;border-color:var(--accent)}
+        /* sensitivity mini-chart */
+        .senshead{display:flex;justify-content:space-between;align-items:baseline;
+            margin:16px 0 6px;font-size:9px;color:#8089a0;text-transform:uppercase;letter-spacing:.06em}
+        .senshead span{color:#475569;text-transform:none;letter-spacing:0}
+        .sens{display:flex;flex-direction:column;gap:2px}
+        .sensrow{display:flex;align-items:center;gap:7px;cursor:pointer;padding:1px 3px;border-radius:3px;text-decoration:none}
+        .sensrow:hover{background:rgba(255,255,255,.04)}
+        .sensrow .sz{width:26px;text-align:right;font-size:9.5px;color:#64748b;font-family:'JetBrains Mono',monospace}
+        .sensrow .sbarwrap{flex:1;height:7px;background:var(--panel-2);border-radius:2px;overflow:hidden}
+        .sensrow .sbar{display:block;height:100%;background:#5a6378;border-radius:2px}
+        .sensrow .sn{width:22px;text-align:right;font-size:9.5px;color:#8089a0;font-family:'JetBrains Mono',monospace}
+        .sensrow.cur .sz,.sensrow.cur .sn{color:var(--accent);font-weight:700}
+        .sensrow.cur .sbar{background:var(--accent)}
+        /* the analysed window, stated plainly under the title */
+        .datebar{display:flex;align-items:center;flex-wrap:wrap;gap:7px;margin:5px 0 3px;font-size:11.5px}
+        .datebar .dlabel{font-size:8.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+            color:var(--accent);background:rgba(34,211,238,.1);border:1px solid rgba(34,211,238,.3);
+            border-radius:99px;padding:1px 7px}
+        .datebar .dval{color:#e5e7eb;font-weight:600}
+        .datebar .darrow{color:#475569}
+        .datebar .dtz{color:#64748b;font-size:9px;font-weight:700;letter-spacing:.06em;
+            border:1px solid var(--border);border-radius:4px;padding:0 5px}
+        .datebar .dsub{color:#64748b;font-size:10px}
+        .datebar .dsep{color:#333}
+        .daypick{display:inline-flex;align-items:center;gap:5px;background:var(--surface);
+          border:1px solid var(--border);border-radius:6px;padding:2px 4px}
+        .daypick .nav{width:18px;height:18px;display:grid;place-items:center;border-radius:4px;
+          color:#64748b;text-decoration:none;font-size:14px;line-height:1}
+        .daypick .nav:hover{background:rgba(255,255,255,.06);color:#e5e7eb}
+        .daypick .nav.disabled{opacity:.25;pointer-events:none}
+        .daypick input[type=date]{background:var(--panel-2);border:1px solid var(--border);color:#e5e7eb;
+          border-radius:4px;padding:2px 5px;font-size:11px;font-family:'JetBrains Mono',monospace;color-scheme:dark}
+        .daypick .live{margin-left:2px;font-size:10px;font-weight:700;letter-spacing:.03em;text-decoration:none;
+          color:#64748b;padding:2px 7px;border-radius:4px;border:1px solid var(--border)}
+        .daypick .live.on{color:var(--accent);border-color:rgba(34,211,238,.4);background:rgba(34,211,238,.08)}
+        .daypick .live:hover{color:var(--accent)}
+        .rangepick.on{border-color:rgba(167,139,250,.5);background:rgba(167,139,250,.08)}
+        .rangepick.on #rApply{color:var(--purple);border-color:rgba(167,139,250,.5)}
+        #ch-range{fill:rgba(34,211,238,.08);stroke:rgba(34,211,238,.25);stroke-dasharray:3}
+        .tztoggle{display:inline-flex;background:var(--surface);border:1px solid var(--border);border-radius:6px;overflow:hidden;vertical-align:middle}
+        .tztoggle a{padding:2px 7px;font-size:10px;color:#64748b;cursor:pointer;border-right:1px solid var(--border);text-decoration:none}
+        .tztoggle a:last-child{border-right:none}
+        .tztoggle a:hover{color:#e5e7eb}
+        .tztoggle a.on{background:var(--panel-2);color:var(--accent)}
+        /* cross-page nav button (matches the timeline's) */
+        .navbtn{display:inline-flex;align-items:center;gap:6px;background:var(--surface);
+            border:1px solid var(--border);border-radius:6px;padding:3px 9px;font-size:10px;
+            font-weight:600;color:#8089a0;text-decoration:none;vertical-align:middle}
+        .navbtn:hover{color:var(--accent);border-color:rgba(34,211,238,.45)}
+        .navbtn svg{flex:none}
+        .envtoggle a{font-weight:700;letter-spacing:.04em}
+        .envtoggle a[data-env="dev"].on{color:#fbbf24}
+        /* scope selectors: group / family / pipeline */
+        .fsel{background:var(--surface);border:1px solid var(--border);border-radius:6px;
+              color:#94a3b8;font-size:11px;font-family:'JetBrains Mono',monospace;
+              padding:4px 7px;max-width:190px;outline:none;cursor:pointer;color-scheme:dark}
+        .fsel:hover{border-color:var(--border-2);color:#e6e8ee}
+        .fsel:focus{border-color:var(--accent)}
+        .fclear{color:#64748b;font-size:10px;font-weight:700;text-decoration:none;letter-spacing:.05em}
+        .fclear:hover{color:var(--accent)}
+    </style>
+</head>
+<body class="p-6 env-{{ env }}">
+    <header class="mb-8">
+        <div class="flex items-start gap-4">
+            <div class="bg-orange-600 p-2 rounded"><i class="fas fa-wave-square text-white text-xl"></i></div>
+            <div>
+                <h1 class="text-2xl font-bold tracking-tight uppercase mono">Monty <span class="text-slate-600">anomalies</span></h1>
+                <!-- the exact span the detector analysed -->
+                <div class="datebar mono">
+                    {% if range_mode %}
+                    <span class="dlabel">Range</span>
+                    <span class="dval">{{ range_start.strftime('%a %d %b %Y') }}</span>
+                    <span class="darrow">→</span>
+                    <span class="dval">{{ range_end.strftime('%a %d %b %Y') }}</span>
+                    <span class="dsub">vs baseline from {{ win_start.strftime('%d %b') }}</span>
+                    {% else %}
+                    <span class="dlabel">{{ 'Live' if is_live else 'Archive' }}</span>
+                    <span class="dval">{{ win_end.strftime('%a %d %b %Y %H:%M') }}</span>
+                    <span class="dsub">baseline from {{ win_start.strftime('%d %b %H:%M') }}</span>
+                    {% endif %}
+                    <span class="dtz">{{ tz_abbr }}</span>
+                    {% if latest_point_at %}
+                    <span class="dsep">·</span>
+                    <span class="dsub">newest data point {{ latest_point_at.strftime('%d %b %H:%M') }}</span>
+                    {% endif %}
+                </div>
+                <div class="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-slate-400 mt-3">
+                    <span class="flex items-center gap-1"><i class="fas fa-circle text-[8px] text-emerald-500"></i> {{ env|upper }}</span>
+                    <span class="text-slate-700">|</span>
+                    <span>METRIC COVERAGE: <span class="text-emerald-400">{{ coverage }}%</span></span>
+                    <span class="text-slate-700">|</span>
+                    <span>BASELINE: <span class="text-slate-300">{{ baseline_days }}d</span> · z≥{{ z_threshold }}</span>
+                    <span class="text-slate-700">|</span>
+                    {# cross-nav: carry env + tz across so you don't lose context #}
+                    <a class="navbtn" href="/?env={{ env }}&tz={{ tzname }}" title="Pipeline timeline">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="7" x2="14" y2="7"/><line x1="3" y1="12" x2="20" y2="12"/><line x1="3" y1="17" x2="10" y2="17"/></svg>
+                        Timeline
+                    </a>
+                    <span class="text-slate-700">|</span>
+                    <span class="tztoggle envtoggle">
+                        <a class="{{ 'on' if env == 'prod' else '' }}" data-env="prod">PROD</a>
+                        <a class="{{ 'on' if env == 'dev' else '' }}" data-env="dev">DEV</a>
+                    </span>
+                    <span class="text-slate-700">|</span>
+                    <span class="tztoggle">
+                        <a class="{{ 'on' if tzname == 'utc' else '' }}" data-tz="utc">UTC</a>
+                        <a class="{{ 'on' if tzname == 'sydney' else '' }}" data-tz="sydney">SYD</a>
+                        <a class="{{ 'on' if tzname == 'adelaide' else '' }}" data-tz="adelaide">ADL</a>
+                    </span>
+                    <span class="text-slate-700">|</span>
+                    <span class="daypick">
+                        <a class="nav" id="prevBtn" href="#" title="Previous day">‹</a>
+                        <input type="date" id="dayInput" value="{{ day }}">
+                        <a class="nav" id="nextBtn" href="#" title="Next day">›</a>
+                        <a class="live {{ 'on' if is_live else '' }}" id="liveBtn" href="#" title="As of now">● {{ 'LIVE' if is_live else ('RANGE' if range_mode else 'AS OF ' + day) }}</a>
+                    </span>
+                    <span class="daypick rangepick {{ 'on' if range_mode else '' }}">
+                        <span style="font-size:10px;color:#64748b">AVG</span>
+                        <input type="date" id="rFrom" value="{{ range_from if range_mode else day }}">
+                        <span style="color:#64748b">→</span>
+                        <input type="date" id="rTo" value="{{ range_to if range_mode else day }}">
+                        <a class="live" id="rApply" href="#" title="Average metrics over range">APPLY</a>
+                    </span>
+                    <span class="text-slate-700">|</span>
+                    {# scope selectors: narrow the whole page to one group / family / pipeline #}
+                    <select id="f-group" class="fsel" title="Filter by group">
+                        <option value="">All groups</option>
+                        {% for g in filter_options.groups %}
+                        <option value="{{ g }}" {{ 'selected' if g == group_filter }}>{{ g }}</option>
+                        {% endfor %}
+                    </select>
+                    <select id="f-family" class="fsel" title="Filter by family">
+                        <option value="">All families</option>
+                        {% for f in filter_options.families %}
+                        <option value="{{ f }}" {{ 'selected' if f == family_filter }}>{{ f }}</option>
+                        {% endfor %}
+                    </select>
+                    <select id="f-pipeline" class="fsel" title="Filter by pipeline">
+                        <option value="">All pipelines</option>
+                        {% for p in filter_options.pipelines %}
+                        <option value="{{ p }}" {{ 'selected' if p == pipeline_filter }}>{{ p }}</option>
+                        {% endfor %}
+                    </select>
+                    {% if group_filter or family_filter or pipeline_filter %}
+                    <a class="fclear" id="fClear" href="#" title="Clear scope filters">CLEAR</a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+        <!-- Left: recent anomaly list -->
+        <div class="xl:col-span-3 space-y-6">
+            <div class="stat-card p-5 h-full">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-xs font-bold text-slate-500 uppercase tracking-widest">Open Anomalies</h2>
+                    <span class="text-[10px] text-orange-500 mono">{{ n_anom }}</span>
+                </div>
+                <div class="space-y-1.5">
+                    {% for a in anomalies %}
+                    <div class="metric-pick flex items-center gap-2 px-2 py-1.5 rounded border cursor-pointer {{ 'bg-rose-500/10 border-rose-500/20' if a.direction=='drop' else 'bg-orange-500/10 border-orange-500/20' }}" data-metric="{{ a.metric }}" title="{{ a.metric }}">
+                        <span class="text-[8px] font-bold shrink-0 {{ 'text-rose-400' if a.direction=='drop' else 'text-orange-400' }} uppercase">{{ 'DROP' if a.direction=='drop' else 'SPIKE' }}</span>
+                        <span class="text-[9px] text-slate-300 mono truncate flex-1">{{ a.metric.split('.')[-1] }}</span>
+                        <span class="text-[9px] shrink-0 {{ 'text-rose-400' if a.direction=='drop' else 'text-orange-400' }} whitespace-nowrap">{{ '%+.0f'|format(a.pct) }}% · z{{ '%.0f'|format(a.z) }}</span>
+                    </div>
+                    {% else %}
+                    <div class="text-[10px] text-slate-500">No anomalies over threshold.</div>
+                    {% endfor %}
+                </div>
+                <!-- live detector knobs -->
+                <div class="mt-8 pt-6 border-t border-white/5">
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="text-[10px] font-bold text-slate-500 uppercase">Detector</h3>
+                        <a class="expandall" id="detReset">Reset</a>
+                    </div>
+
+                    <div class="knob">
+                        <label>z threshold <b id="v-z">{{ z_threshold }}</b></label>
+                        <input type="range" id="k-z" min="{{ detector_limits.z[0] }}" max="{{ detector_limits.z[1] }}"
+                               step="{{ detector_limits.z[2] }}" value="{{ z_threshold }}">
+                        <span class="khint">how many robust σ from the median</span>
+                    </div>
+                    <div class="knob">
+                        <label>min change <b id="v-min_pct">{{ min_pct }}%</b></label>
+                        <input type="range" id="k-min_pct" min="{{ detector_limits.min_pct[0] }}" max="{{ detector_limits.min_pct[1] }}"
+                               step="{{ detector_limits.min_pct[2] }}" value="{{ min_pct }}">
+                        <span class="khint">ignore statistically-odd but tiny moves</span>
+                    </div>
+                    <div class="knob">
+                        <label>baseline <b id="v-days">{{ baseline_days }}d</b></label>
+                        <input type="range" id="k-days" min="{{ detector_limits.days[0] }}" max="{{ detector_limits.days[1] }}"
+                               step="{{ detector_limits.days[2] }}" value="{{ baseline_days }}">
+                        <span class="khint">history used to learn "normal"</span>
+                    </div>
+                    <div class="knob">
+                        <label>min points <b id="v-min_points">{{ min_points }}</b></label>
+                        <input type="range" id="k-min_points" min="{{ detector_limits.min_points[0] }}" max="{{ detector_limits.min_points[1] }}"
+                               step="{{ detector_limits.min_points[2] }}" value="{{ min_points }}">
+                        <span class="khint">{{ skipped_low_points }} metric(s) skipped for too little history</span>
+                    </div>
+                    <div class="knob">
+                        <label>row limit / day <b id="v-row_limit">{{ row_limit }}</b></label>
+                        <input type="range" id="k-row_limit" min="{{ detector_limits.row_limit[0] }}" max="{{ detector_limits.row_limit[1] }}"
+                               step="{{ detector_limits.row_limit[2] }}" value="{{ row_limit }}">
+                        <span class="khint">volume gate — {{ skipped_low_volume }} metric(s) skipped for typical volume &lt; {{ row_limit }}</span>
+                    </div>
+                    <button id="detApply" class="detapply">Apply</button>
+
+                    <!-- how the count moves with z, computed from the metrics
+                         already scored — no re-fetch needed -->
+                    <div class="senshead">Anomalies by z <span>min change {{ min_pct }}%</span></div>
+                    <div class="sens">
+                        {% for p in sensitivity %}
+                        <a class="sensrow {{ 'cur' if p.current }}" data-z="{{ p.z }}" title="Apply z ≥ {{ p.z }}">
+                            <span class="sz">{{ p.z }}</span>
+                            <span class="sbarwrap"><span class="sbar" style="width:{{ p.pct_of_max }}%"></span></span>
+                            <span class="sn">{{ p.n }}</span>
+                        </a>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <div class="mt-8 pt-6 border-t border-white/5">
+                    <h3 class="text-[10px] font-bold text-slate-500 uppercase mb-3">Freshness metrics</h3>
+                    <p class="text-[9px] text-slate-500 leading-relaxed">{{ freshness_metrics }} monotonic watermark metrics are tracked for staleness on the <span class="text-sky-400">Pipeline Timeline</span>, not scored here.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right -->
+        <div class="xl:col-span-9 space-y-6">
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                <!-- Main chart -->
+                <div class="lg:col-span-12 stat-card p-6">
+                    {% if focus %}
+                    <div class="flex justify-between items-start mb-6">
+                        <div>
+                            <h2 class="text-lg font-bold mono">ANOMALY_TRACE: <span id="ch-metric" class="{{ 'text-rose-500' if focus.direction=='drop' else 'text-orange-500' }}">{{ focus.metric }}</span></h2>
+                            <p class="text-xs text-slate-500">Pipeline: <span id="ch-pipeline" class="text-slate-300">{{ focus.pipeline }}</span> • <span id="ch-n">{{ focus.n }}</span> points · {{ baseline_days }}d baseline · <span id="ch-basis" class="{{ 'text-slate-500' if focus.basis == 'flat' else 'text-cyan-400' }} uppercase font-bold">{{ 'flat baseline' if focus.basis == 'flat' else focus.basis }}</span></p>
+                        </div>
+                        <div id="ch-dir" class="px-3 py-1 {{ 'bg-rose-600/20 border-rose-500/40 text-rose-400' if focus.direction=='drop' else 'bg-orange-600/20 border-orange-500/40 text-orange-500' }} border text-[10px] rounded uppercase font-bold">{{ focus.direction }}</div>
+                    </div>
+                    <div class="relative w-full h-96 bg-slate-900/20 rounded border border-white/5">
+                        <svg id="ch-svg" class="w-full h-full" viewBox="0 0 {{ chart.w }} {{ chart.h }}" preserveAspectRatio="none">
+                            <rect id="ch-range" x="{{ chart.rangex.x if chart.rangex else 0 }}" y="0" width="{{ chart.rangex.w if chart.rangex else 0 }}" height="{{ chart.h }}" style="{{ '' if chart.rangex else 'display:none' }}" />
+                            <!-- nested confidence fan (widest first) + dashed alert boundary -->
+                            <g id="ch-bands">{% for b in chart.bands %}<path d="{{ b.d }}" fill="rgba(34,211,238,{{ b.fill }})" stroke="rgba(34,211,238,{{ 0.5 if b.alert else 0.18 }})" stroke-width="1"{% if b.alert %} stroke-dasharray="5 3"{% endif %}><title>{{ b.label }} · {{ b.lo }} … {{ b.hi }}</title></path>{% endfor %}</g>
+                            <path id="ch-mid" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="1" stroke-dasharray="4" d="{{ chart.mid }}" />
+                            <path id="ch-line" fill="none" stroke="#60a5fa" stroke-width="2" d="{{ chart.line }}" />
+                            <path id="ch-avg" fill="none" stroke="#22d3ee" stroke-width="2.5" d="{{ chart.avgline or '' }}" style="{{ '' if chart.avgline else 'display:none' }}" />
+                            <g id="ch-anom">{% for p in chart.anom %}<circle cx="{{ p.x }}" cy="{{ p.y }}" r="4" fill="#f43f5e" class="pulse-danger" />{% endfor %}</g>
+                            <!-- hover crosshair + nearest-point marker -->
+                            <line id="ch-cross" y1="0" y2="{{ chart.h }}" stroke="#22d3ee" stroke-width="1" stroke-dasharray="3 3" opacity="0" />
+                            <circle id="ch-dot" r="4.5" fill="#22d3ee" stroke="#0f1116" stroke-width="1.5" opacity="0" />
+                        </svg>
+                        <!-- hover capture layer: sits above the SVG, feeds the tooltip -->
+                        <div id="ch-hit" class="absolute inset-0 cursor-crosshair"></div>
+                        <div id="ch-tip" class="chtip">
+                            <div class="t" id="tip-t"></div>
+                            <div class="v"><span id="tip-v"></span> <span class="u" id="tip-leaf"></span></div>
+                            <div class="m"><span id="tip-z"></span> · median <span id="tip-med"></span></div>
+                        </div>
+                        <div id="ch-leaf" class="absolute bottom-4 left-4 text-[9px] text-slate-600 uppercase font-bold tracking-widest">{{ focus.metric.split('.')[-1] }}</div>
+                        <div class="absolute top-4 right-4 flex items-center gap-4">
+                            <div class="flex items-center gap-1.5 text-[9px] text-slate-500"><span class="w-2 h-2 rounded-full bg-sky-500"></span> OBSERVED</div>
+                            {% if range_mode %}<div class="flex items-center gap-1.5 text-[9px] text-slate-500"><span class="w-2 h-2 rounded-full bg-orange-500"></span> RANGE AVG</div>{% endif %}
+                            <div class="flex items-center gap-1.5 text-[9px] text-slate-500"><span class="w-2 h-2 rounded-full" style="background:rgba(34,211,238,.18)"></span> {% for b in chart.bands if not b.alert %}{{ b.label }}{% if not loop.last %}/{% endif %}{% endfor %} CONF</div>
+                            <div class="flex items-center gap-1.5 text-[9px] text-slate-500"><span class="w-2 h-2 rounded-full border border-cyan-500/50" style="border-style:dashed"></span> ±{{ z_threshold }}σ ALERT</div>
+                        </div>
+                    </div>
+                    <!-- x-axis: dates across the observed window -->
+                    <div class="chaxis" id="ch-axis">
+                        {% for t in chart.xticks %}<span style="left:{{ t.left }}%">{{ t.label }}</span>{% endfor %}
+                    </div>
+                    <div class="grid grid-cols-3 gap-4 mt-6">
+                        <div class="bg-white/5 p-3 rounded border border-white/5"><div class="text-[9px] text-slate-500 uppercase font-bold">{{ 'Range avg vs median' if range_mode else 'Latest vs Median' }}</div><div id="ch-pct" class="text-sm font-bold {{ 'text-rose-400' if focus.direction=='drop' else 'text-orange-400' }}">{{ '%+.1f'|format(focus.pct) }}%</div></div>
+                        <div class="bg-white/5 p-3 rounded border border-white/5"><div class="text-[9px] text-slate-500 uppercase font-bold">Robust z-score</div><div id="ch-z" class="text-sm font-bold text-rose-400">{{ '%.1f'|format(focus.z) }}σ</div></div>
+                        <div class="bg-white/5 p-3 rounded border border-white/5"><div class="text-[9px] text-slate-500 uppercase font-bold">{{ 'Period average' if range_mode else 'Latest value' }}</div><div id="ch-latest" class="text-sm font-bold text-white mono">{{ focus.latest_fmt }}</div><div id="ch-latest-at" class="text-[9px] text-slate-500 mono mt-0.5">{{ focus.latest_at_fmt }} {{ tz_abbr }}</div></div>
+                    </div>
+                    {% else %}
+                    <div class="text-center py-20 text-slate-500">No numeric metrics with enough history to score.</div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Ranked table: every tracked metric, searchable + sortable -->
+            <div class="stat-card p-5">
+                <div class="flex items-baseline justify-between gap-4 mb-3 flex-wrap">
+                    <h2 class="text-xs font-bold text-slate-500 uppercase tracking-widest">All tracked metrics</h2>
+                    <div class="flex items-center gap-3">
+                        <span class="text-[10px] text-slate-600 mono"><span id="rowCount">{{ table|length }}</span>/{{ table|length }} · click a row to graph it</span>
+                        <a class="expandall" id="expandAll">Expand all</a>
+                        <a class="expandall" id="collapseAll">Collapse</a>
+                        <span class="mfilter">
+                            <a data-filter="all" class="on">ALL</a>
+                            <a data-filter="scored">SCORED</a>
+                            <a data-filter="anom">ANOMALY</a>
+                            <a data-filter="ok">HEALTHY</a>
+                            <a data-filter="skip">NOT SCORED</a>
+                        </span>
+                    </div>
+                </div>
+                <div class="msearch mb-3">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    <input id="metricSearch" type="text" autocomplete="off" placeholder="Search metric or pipeline…">
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left" id="metricTable">
+                        <thead><tr class="text-[9px] text-slate-600 uppercase border-b border-white/5">
+                            <th class="pb-2 sortable" data-key="metric" data-type="text">Metric</th>
+                            <th class="pb-2 sortable" data-key="pipeline" data-type="text">Pipeline</th>
+                            <th class="pb-2 sortable" data-key="latest" data-type="num">Latest</th>
+                            <th class="pb-2 sortable" data-key="median" data-type="num">Median (base)</th>
+                            <th class="pb-2 sortable" data-key="pct" data-type="num">Δ%</th>
+                            <th class="pb-2 sortable" data-key="z" data-type="num">z</th>
+                            <th class="pb-2 sortable" data-key="seen" data-type="num">Last seen</th>
+                            <th class="pb-2 sortable" data-key="anom" data-type="num">Status</th></tr></thead>
+                        <tbody class="text-[11px] mono" id="metricBody">
+                            {# level 1: GROUP -> level 2: FAMILY -> metric rows #}
+                            {% for g in groups %}
+                            {% set gid = 'g%d'|format(loop.index) %}
+                            <tr class="grp-row {{ 'has-anom' if g.n_anom else '' }}" data-group="{{ gid }}">
+                                <td colspan="8" class="py-2">
+                                    <span class="chev">▶</span>
+                                    <span class="gname">{{ g.group }}</span>
+                                    {% if not g.solo %}<span class="gmeta">{{ g.families|length }} families</span>{% endif %}
+                                    <span class="gmeta">{{ g.n }} metric{{ '' if g.n == 1 else 's' }}</span>
+                                    {% if g.n_anom %}<span class="gbadge anom">{{ g.n_anom }} anomaly</span>
+                                    {% else %}<span class="gbadge ok">healthy</span>{% endif %}
+                                    <span class="gmeta">worst z {{ g.worst_z }}</span>
+                                </td>
+                            </tr>
+                            {% for p in g.families %}
+                            {% set pid = '%s_f%d'|format(gid, loop.index) %}
+                            {% if not g.solo %}
+                            <tr class="sub-row {{ 'has-anom' if p.n_anom else '' }}" data-group="{{ gid }}" data-sub="{{ pid }}">
+                                <td colspan="8" class="py-1.5">
+                                    <span class="chev">▶</span>
+                                    <span class="sname">{{ p.family }}</span>
+                                    <span class="gmeta">({{ p.n }})</span>
+                                    {% if p.n_anom %}<span class="gbadge anom">{{ p.n_anom }}</span>{% endif %}
+                                </td>
+                            </tr>
+                            {% endif %}
+                            {% for r in p.rows %}
+                            <tr class="table-row border-b border-white/5 {{ 'metric-pick cursor-pointer' if r.scored }} {{ 'is-anom' if r.anom else ('is-skip' if not r.scored else 'is-ok') }}"
+                                data-group="{{ gid }}" data-sub="{{ pid }}"
+                                data-metric="{{ r.metric }}"
+                                data-search="{{ r.metric|lower }} {{ r.pipeline|lower }} {{ g.group|lower }} {{ p.family|lower }}"
+                                data-pipeline="{{ r.pipeline }}"
+                                data-latest="{{ r.latest }}" data-median="{{ r.median }}"
+                                data-pct="{{ r.pct }}" data-z="{{ r.z }}" data-seen="{{ r.latest_at_epoch }}"
+                                data-anom="{{ 1 if r.anom else 0 }}" data-scored="{{ 1 if r.scored else 0 }}">
+                                <td class="py-3 break-all {{ 'pl-5' if g.solo else 'pl-8' }} {{ 'text-rose-300' if r.anom else ('text-slate-500' if not r.scored else 'text-emerald-300') }}">{{ r.metric_name }}</td>
+                                <td class="py-3 text-slate-500 break-all">{{ r.pipeline }}</td>
+                                {% if r.scored %}
+                                <td class="py-3">{{ r.latest_fmt }}</td>
+                                <td class="py-3 text-slate-500">{{ r.median_fmt }}</td>
+                                <td class="py-3 {{ 'text-rose-400 font-bold' if r.anom else 'text-emerald-400' }}">{{ '%+.1f'|format(r.pct) }}%</td>
+                                <td class="py-3 text-slate-500">{{ '%.1f'|format(r.z) }}</td>
+                                {% else %}
+                                <td class="py-3 text-slate-600">{{ r.latest_fmt }}</td>
+                                <td class="py-3 text-slate-600 italic font-sans text-[10px]" colspan="3" title="{{ r.reason }}">not scored — {{ r.reason }}</td>
+                                {% endif %}
+                                <td class="py-3 text-slate-400 whitespace-nowrap" title="{{ r.latest_at_iso }}">{{ r.latest_at_fmt }}</td>
+                                <td class="py-3">{% if not r.scored %}<span class="bg-slate-500/10 text-slate-500 px-2 py-0.5 rounded text-[9px] font-bold uppercase">Not scored</span>{% elif r.anom %}<span class="bg-rose-500/10 text-rose-500 px-2 py-0.5 rounded text-[9px] font-bold uppercase">Anomaly</span>{% else %}<span class="bg-emerald-500/10 text-emerald-500 px-2 py-0.5 rounded text-[9px] font-bold uppercase">Healthy</span>{% endif %}</td>
+                            </tr>
+                            {% endfor %}{# rows #}
+                            {% endfor %}{# families #}
+                            {% endfor %}{# groups #}
+                        </tbody>
+                    </table>
+                    <div id="noMetricMatch" class="hidden py-8 text-center text-[11px] text-slate-600">No metric matches that filter.</div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="mt-8 stat-card py-2 px-6 flex justify-between items-center text-[10px] text-slate-500 uppercase tracking-widest">
+        <div class="flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></span> Monty Observer · {{ now.strftime('%Y-%m-%d %H:%M') }} {{ tz_abbr }}</div>
+        <div class="flex gap-6"><span>Detector: <span class="text-white">Robust MAD z-score</span></span><span>Gate: <span class="text-white">|z|≥{{ z_threshold }} & |Δ|≥{{ '%.0f'|format(min_pct) }}%</span></span></div>
+    </footer>
+    <script>
+    (function () {
+        var params = new URLSearchParams(window.location.search);
+        function go(day) {
+            if (day === null) params.delete('day'); else params.set('day', day);
+            window.location.search = params.toString();
+        }
+        // timezone toggle — preserves every other param (exclude env toggle)
+        document.querySelectorAll('.tztoggle:not(.envtoggle) a').forEach(function (a) {
+            a.addEventListener('click', function () {
+                params.set('tz', a.getAttribute('data-tz'));
+                window.location.search = params.toString();
+            });
+        });
+        // prod/dev environment toggle
+        document.querySelectorAll('.envtoggle a').forEach(function (a) {
+            a.addEventListener('click', function () {
+                params.set('env', a.getAttribute('data-env'));
+                window.location.search = params.toString();
+            });
+        });
+        // scope selectors: group / family / pipeline. Re-runs the detector over
+        // just that slice (empty = all). Every other param is preserved.
+        ['group', 'family', 'pipeline'].forEach(function (k) {
+            var sel = document.getElementById('f-' + k);
+            if (!sel) return;
+            sel.addEventListener('change', function () {
+                var p = new URLSearchParams(window.location.search);
+                if (sel.value) { p.set(k, sel.value); } else { p.delete(k); }
+                window.location.search = p.toString();
+            });
+        });
+        var fClear = document.getElementById('fClear');
+        if (fClear) fClear.addEventListener('click', function (e) {
+            e.preventDefault();
+            var p = new URLSearchParams(window.location.search);
+            ['group', 'family', 'pipeline'].forEach(function (k) { p.delete(k); });
+            window.location.search = p.toString();
+        });
+        var input = document.getElementById('dayInput');
+        var today = new Date().toISOString().slice(0, 10);
+        input.max = today;
+        input.addEventListener('change', function () { if (input.value) go(input.value); });
+        document.getElementById('prevBtn').addEventListener('click', function (e) { e.preventDefault(); go({{ prev_day|tojson }}); });
+        document.getElementById('liveBtn').addEventListener('click', function (e) {
+            e.preventDefault(); params.delete('day'); params.delete('from'); params.delete('to');
+            window.location.search = params.toString();
+        });
+        var nextBtn = document.getElementById('nextBtn');
+        if ({{ next_day|tojson }} > today) { nextBtn.classList.add('disabled'); }
+        else nextBtn.addEventListener('click', function (e) { e.preventDefault(); go({{ next_day|tojson }}); });
+        // range apply: average metrics over [from, to]
+        var rf = document.getElementById('rFrom'), rt = document.getElementById('rTo');
+        rf.max = today; rt.max = today;
+        document.getElementById('rApply').addEventListener('click', function (e) {
+            e.preventDefault();
+            if (!rf.value || !rt.value) return;
+            var a = rf.value, b = rt.value; if (a > b) { var t = a; a = b; b = t; }
+            params.delete('day'); params.set('from', a); params.set('to', b);
+            window.location.search = params.toString();
+        });
+    })();
+    </script>
+    <script id="charts-data" type="application/json">{{ charts|tojson }}</script>
+    <script>
+    (function () {
+        var CHARTS = JSON.parse(document.getElementById('charts-data').textContent);
+        var Z = {{ z_threshold }};
+        var focusMetric = {{ (focus.metric if focus else '')|tojson }};
+
+        function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+
+        // server-side facts the SQL suggestions need
+        var SQLCFG = {
+            table: {{ monty_table|default('MONITORING_DB.MONITORING.CUSTOM_METRICS')|tojson }},
+            env: {{ env|tojson }},
+            days: {{ baseline_days|tojson }},
+            z: {{ z_threshold|tojson }}
+        };
+
+        // ---- detector knobs: tweak thresholds and re-run -------------------
+        (function () {
+            var params0 = new URLSearchParams(window.location.search);
+            var KNOBS = {
+                z: {{ z_threshold|tojson }},
+                min_pct: {{ min_pct|tojson }},
+                days: {{ baseline_days|tojson }},
+                min_points: {{ min_points|tojson }},
+                row_limit: {{ row_limit|tojson }}
+            };
+            var SUFFIX = {min_pct: '%', days: 'd'};
+            var apply = document.getElementById('detApply');
+
+            function go(overrides) {
+                var p = new URLSearchParams(window.location.search);
+                Object.keys(overrides).forEach(function (k) { p.set(k, overrides[k]); });
+                window.location.search = p.toString();
+            }
+            function dirty() {
+                var changed = Object.keys(KNOBS).some(function (k) {
+                    var el = document.getElementById('k-' + k);
+                    return el && parseFloat(el.value) !== parseFloat(KNOBS[k]);
+                });
+                apply.classList.toggle('dirty', changed);
+                apply.textContent = changed ? 'Apply changes' : 'Apply';
+            }
+            Object.keys(KNOBS).forEach(function (k) {
+                var el = document.getElementById('k-' + k);
+                if (!el) return;
+                el.addEventListener('input', function () {
+                    document.getElementById('v-' + k).textContent = el.value + (SUFFIX[k] || '');
+                    dirty();
+                });
+            });
+            if (apply) apply.addEventListener('click', function () {
+                var out = {};
+                Object.keys(KNOBS).forEach(function (k) {
+                    out[k] = document.getElementById('k-' + k).value;
+                });
+                go(out);
+            });
+            var reset = document.getElementById('detReset');
+            if (reset) reset.addEventListener('click', function () {
+                var p = new URLSearchParams(window.location.search);
+                ['z', 'min_pct', 'days', 'min_points', 'row_limit'].forEach(function (k) { p.delete(k); });
+                window.location.search = p.toString();
+            });
+            // clicking a row of the sensitivity chart jumps straight to that z
+            document.querySelectorAll('.sensrow').forEach(function (row) {
+                row.addEventListener('click', function () { go({z: row.dataset.z}); });
+            });
+        })();
+
+        // ---- chart hover: show the ACTUAL data point under the cursor -------
+        var hit = document.getElementById('ch-hit');
+        var tip = document.getElementById('ch-tip');
+        var cross = document.getElementById('ch-cross');
+        var dot = document.getElementById('ch-dot');
+        var current = null;   // chart payload currently drawn
+
+        function hideTip() {
+            if (!tip) return;
+            tip.classList.remove('on');
+            cross.setAttribute('opacity', 0);
+            dot.setAttribute('opacity', 0);
+        }
+
+        if (hit) {
+            hit.addEventListener('mouseleave', hideTip);
+            hit.addEventListener('mousemove', function (e) {
+                if (!current || !current.points || !current.points.length) return;
+                var box = hit.getBoundingClientRect();
+                // the SVG uses preserveAspectRatio="none", so map px -> viewBox
+                // independently on x; a plain ratio is correct here.
+                var vx = (e.clientX - box.left) / box.width * current.w;
+                // nearest point by x
+                var best = current.points[0], bd = Math.abs(best.x - vx);
+                for (var i = 1; i < current.points.length; i++) {
+                    var d = Math.abs(current.points[i].x - vx);
+                    if (d < bd) { bd = d; best = current.points[i]; }
+                }
+                cross.setAttribute('x1', best.x); cross.setAttribute('x2', best.x);
+                cross.setAttribute('opacity', 0.7);
+                dot.setAttribute('cx', best.x); dot.setAttribute('cy', best.y);
+                dot.setAttribute('opacity', 1);
+                dot.setAttribute('fill', best.out ? '#f43f5e' : '#22d3ee');
+                // tooltip content + position (px space)
+                document.getElementById('tip-t').textContent = best.t;
+                document.getElementById('tip-v').textContent = best.vf;
+                document.getElementById('tip-leaf').textContent = current.leaf;
+                document.getElementById('tip-z').textContent = (best.z > 0 ? '+' : '') + best.z + 'σ';
+                document.getElementById('tip-med').textContent = current.center_fmt;
+                tip.classList.toggle('out', !!best.out);
+                tip.style.left = (best.x / current.w * box.width) + 'px';
+                tip.style.top = (best.y / current.h * box.height) + 'px';
+                tip.classList.add('on');
+            });
+        }
+
+        // ---- Snowflake query suggestions ------------------------------------
+        var sqlMode = 'series';
+
+        function buildSql(c, mode) {
+            var t = SQLCFG.table, env = SQLCFG.env, d = SQLCFG.days;
+            // filter on the RAW metric name + pipeline. Producers reuse one
+            // metric name across pipelines (dbt emits `dbt_model_run` for every
+            // model), so metric alone would pull every model's rows.
+            var m = c.metric_name || c.metric;
+            var pipeClause = c.pipeline ? "  AND PIPELINE_NAME = '" + c.pipeline + "'\n" : "";
+            if (mode === 'daily') {
+                return "-- daily rollup: is the shift a level change or one bad run?\n" +
+                    "SELECT DATE_TRUNC('day', OCCURRED_AT) AS day,\n" +
+                    "       COUNT(*) AS runs,\n" +
+                    "       AVG(METRIC_VALUE) AS avg_value,\n" +
+                    "       MIN(METRIC_VALUE) AS min_value,\n" +
+                    "       MAX(METRIC_VALUE) AS max_value\n" +
+                    "FROM " + t + "\n" +
+                    "WHERE METRIC_NAME = '" + m + "'\n" + pipeClause +
+                    "  AND ENVIRONMENT = '" + env + "'\n" +
+                    "  AND OCCURRED_AT >= DATEADD('day', -" + (d * 4) + ", CURRENT_TIMESTAMP())\n" +
+                    "GROUP BY 1\nORDER BY day DESC;";
+            }
+            if (mode === 'target') {
+                // Query the REAL warehouse table this metric describes, not the
+                // metrics table. The payload never carries a db/schema, so we
+                // resolve the relation by name via ACCOUNT_USAGE.TABLES first.
+                if (!c.target_table) {
+                    return "-- No target table can be derived from this metric.\n" +
+                        "-- 'dbt_model_run' maps to its model; 'ingest.<src>.<table>.<measure>'\n" +
+                        "-- maps to <table>. This metric matches neither.";
+                }
+                var tbl = c.target_table.toUpperCase();
+                return "-- 1. locate the real table (db/schema aren't in the metric payload)\n" +
+                    "SELECT table_catalog, table_schema, table_name, row_count, bytes, last_altered\n" +
+                    "FROM SNOWFLAKE.ACCOUNT_USAGE.TABLES\n" +
+                    "WHERE table_name = '" + tbl + "'\n" +
+                    "  AND deleted IS NULL\n" +
+                    "ORDER BY last_altered DESC;\n\n" +
+                    "-- 2. then inspect it (fill in the catalog/schema from step 1)\n" +
+                    "SELECT * FROM <catalog>.<schema>." + tbl + " LIMIT 100;\n\n" +
+                    "-- 3. does the live row count match the metric above (" + c.latest_fmt + ")?\n" +
+                    "SELECT COUNT(*) AS live_rows FROM <catalog>.<schema>." + tbl + ";";
+            }
+            if (mode === 'context') {
+                return "-- everything the pipeline emitted around the latest point\n" +
+                    "SELECT OCCURRED_AT, METRIC_NAME, METRIC_VALUE, SEVERITY, RUN_ID, PAYLOAD\n" +
+                    "FROM " + t + "\n" +
+                    "WHERE PIPELINE_NAME = '" + c.pipeline + "'\n" +
+                    "  AND ENVIRONMENT = '" + env + "'\n" +
+                    "  AND OCCURRED_AT >= DATEADD('day', -2, CURRENT_TIMESTAMP())\n" +
+                    "ORDER BY OCCURRED_AT DESC\nLIMIT 200;";
+            }
+            return "-- raw series behind this chart (" + c.n + " points, " + d + "d baseline)\n" +
+                "SELECT OCCURRED_AT, METRIC_VALUE, SEVERITY, RUN_ID, PAYLOAD\n" +
+                "FROM " + t + "\n" +
+                "WHERE METRIC_NAME = '" + m + "'\n" + pipeClause +
+                "  AND ENVIRONMENT = '" + env + "'\n" +
+                "  AND OCCURRED_AT >= DATEADD('day', -" + d + ", CURRENT_TIMESTAMP())\n" +
+                "ORDER BY OCCURRED_AT DESC;";
+        }
+
+        function paintSql(c) {
+            var box = document.getElementById('sqlBox');
+            if (!box || !c) return;
+            // the target-table tab is meaningless for metrics with no relation
+            var tt = document.getElementById('sqltabTarget');
+            if (tt) {
+                var has = !!c.target_table;
+                tt.style.opacity = has ? '' : '.35';
+                tt.title = has ? 'Query ' + c.target_table : 'No target table for this metric';
+            }
+            var sql = buildSql(c, sqlMode);
+            box.dataset.raw = sql;
+            box.innerHTML = esc(sql)
+                .replace(/^(--.*)$/gm, '<span style="color:#475569">$1</span>')
+                .replace(/\b(SELECT|FROM|WHERE|AND|IS|NULL|NOT|GROUP BY|ORDER BY|LIMIT|AS|COUNT|AVG|MIN|MAX|DATE_TRUNC|DATEADD|CURRENT_TIMESTAMP|DESC)\b/g, '<span class="kw">$1</span>')
+                .replace(/('[^']*')/g, '<span class="str">$1</span>');
+        }
+
+        document.querySelectorAll('.sqltab').forEach(function (a) {
+            a.addEventListener('click', function () {
+                sqlMode = a.getAttribute('data-sql');
+                document.querySelectorAll('.sqltab').forEach(function (x) { x.classList.toggle('on', x === a); });
+                paintSql(current);
+            });
+        });
+
+        var copyBtn = document.getElementById('sqlCopy');
+        if (copyBtn) copyBtn.addEventListener('click', function () {
+            var raw = document.getElementById('sqlBox').dataset.raw || '';
+            navigator.clipboard.writeText(raw).then(function () {
+                copyBtn.textContent = 'Copied';
+                setTimeout(function () { copyBtn.textContent = 'Copy'; }, 1200);
+            });
+        });
+
+        function draw(metric) {
+            var c = CHARTS[metric];
+            if (!c) return;
+            // rebuild the nested confidence fan (+ dashed alert boundary)
+            var bandsG = document.getElementById('ch-bands');
+            if (bandsG) {
+                bandsG.innerHTML = (c.bands || []).map(function (b) {
+                    var stroke = b.alert ? 0.5 : 0.18;
+                    var dash = b.alert ? ' stroke-dasharray="5 3"' : '';
+                    return '<path d="' + b.d + '" fill="rgba(34,211,238,' + b.fill +
+                        ')" stroke="rgba(34,211,238,' + stroke + ')" stroke-width="1"' +
+                        dash + '><title>' + esc(b.label + ' · ' + b.lo + ' … ' + b.hi) +
+                        '</title></path>';
+                }).join('');
+            }
+            document.getElementById('ch-mid').setAttribute('d', c.mid);
+            document.getElementById('ch-line').setAttribute('d', c.line);
+            // range shade + period-average line (only present in range mode)
+            var rect = document.getElementById('ch-range');
+            var avg = document.getElementById('ch-avg');
+            if (c.rangex) {
+                rect.setAttribute('x', c.rangex.x); rect.setAttribute('width', c.rangex.w);
+                rect.style.display = ''; avg.setAttribute('d', c.avgline || ''); avg.style.display = '';
+            } else { rect.style.display = 'none'; avg.style.display = 'none'; }
+            // anomaly markers
+            var g = document.getElementById('ch-anom');
+            g.innerHTML = c.anom.map(function (p) {
+                return '<circle cx="' + p.x + '" cy="' + p.y + '" r="4" fill="#f43f5e" class="pulse-danger"/>';
+            }).join('');
+            // header + labels. A healthy metric must NOT render in alert colours —
+            // only a real anomaly gets rose/orange; everything else is green.
+            var drop = c.direction === 'drop';
+            var ok = !c.is_anom;
+            var mEl = document.getElementById('ch-metric');
+            mEl.textContent = c.metric;
+            mEl.className = ok ? 'text-emerald-400' : (drop ? 'text-rose-500' : 'text-orange-500');
+            document.getElementById('ch-pipeline').textContent = c.pipeline;
+            document.getElementById('ch-n').textContent = c.n;
+            document.getElementById('ch-leaf').textContent = c.leaf;
+            // detector basis: cyclical (seasonal) vs flat median baseline
+            var basisEl = document.getElementById('ch-basis');
+            if (basisEl) {
+                var flat = (c.basis || 'flat') === 'flat';
+                basisEl.textContent = flat ? 'flat baseline' : c.basis;
+                basisEl.className = (flat ? 'text-slate-500' : 'text-cyan-400') + ' uppercase font-bold';
+            }
+            var dir = document.getElementById('ch-dir');
+            dir.textContent = ok ? 'healthy' : c.direction;
+            dir.className = 'px-3 py-1 border text-[10px] rounded uppercase font-bold ' +
+                (ok ? 'bg-emerald-600/20 border-emerald-500/40 text-emerald-400'
+                    : drop ? 'bg-rose-600/20 border-rose-500/40 text-rose-400'
+                           : 'bg-orange-600/20 border-orange-500/40 text-orange-500');
+            // stat cards
+            var pct = document.getElementById('ch-pct');
+            pct.textContent = (c.pct > 0 ? '+' : '') + c.pct.toFixed(1) + '%';
+            pct.className = 'text-sm font-bold ' +
+                (ok ? 'text-emerald-400' : drop ? 'text-rose-400' : 'text-orange-400');
+            document.getElementById('ch-z').textContent = c.z.toFixed(1) + 'σ';
+            document.getElementById('ch-latest').textContent = c.latest_fmt;
+            var latestAt = document.getElementById('ch-latest-at');
+            if (latestAt) latestAt.textContent = (c.latest_at_fmt || '—') + ' {{ tz_abbr }}';
+            // x-axis dates follow the selected metric's own observed window
+            var axis = document.getElementById('ch-axis');
+            if (axis) {
+                axis.innerHTML = (c.xticks || []).map(function (t) {
+                    return '<span style="left:' + t.left + '%">' + esc(t.label) + '</span>';
+                }).join('');
+            }
+            // recommended action
+            var act = document.getElementById('ch-action');
+            if (act) {
+                if (ok) {
+                    act.innerHTML = '<span class="text-white mono">' + esc(c.leaf) + '</span> is within its normal band (' +
+                        Math.round(Math.abs(c.pct)) + '% off median, ' + Math.abs(c.z).toFixed(1) +
+                        'σ) — no action needed.';
+                } else {
+                    var body = drop
+                        ? 'suggests an upstream stall in <span class="text-sky-400 mono">' + esc(c.pipeline) + '</span> — check the source sync and recent watermark advance.'
+                        : 'is an unusually large batch from <span class="text-sky-400 mono">' + esc(c.pipeline) + '</span> — confirm it\'s a legitimate backfill and not double-ingestion.';
+                    act.innerHTML = 'A ' + Math.round(Math.abs(c.pct)) + '% ' + c.direction +
+                        ' in <span class="text-white mono">' + esc(c.leaf) + '</span> ' + body;
+                }
+            }
+            // active highlight
+            document.querySelectorAll('.metric-pick').forEach(function (el) {
+                el.classList.toggle('active', el.getAttribute('data-metric') === metric);
+            });
+            // hover + SQL follow the selected metric
+            current = c;
+            hideTip();
+            paintSql(c);
+        }
+
+        document.querySelectorAll('.metric-pick').forEach(function (el) {
+            el.addEventListener('click', function () { draw(el.getAttribute('data-metric')); });
+        });
+        if (focusMetric) draw(focusMetric);  // highlight the default selection
+
+        // ---- grouped metric table: expand/collapse + search + filter + sort --
+        var body = document.getElementById('metricBody');
+        if (body) {
+            var search = document.getElementById('metricSearch');
+            var countEl = document.getElementById('rowCount');
+            var noMatch = document.getElementById('noMetricMatch');
+            var grpRows = Array.prototype.slice.call(body.querySelectorAll('tr.grp-row'));
+            var subRows = Array.prototype.slice.call(body.querySelectorAll('tr.sub-row'));
+            var rows = Array.prototype.slice.call(body.querySelectorAll('tr.metric-pick'));
+            var statusFilter = 'all';
+            var openG = {}, openS = {};
+
+            // default: everything starts COLLAPSED on load (click a header or
+            // "Expand all" to open; a search/filter still auto-expands hits).
+            grpRows.forEach(function (tr) { openG[tr.dataset.group] = false; });
+            subRows.forEach(function (tr) { openS[tr.dataset.sub] = false; });
+            // single-metric subjects render with no header row — always "open",
+            // so their metric shows as soon as the pipeline is expanded.
+            rows.forEach(function (tr) {
+                if (!(tr.dataset.sub in openS)) openS[tr.dataset.sub] = true;
+            });
+
+            function matches(tr) {
+                var needle = (search.value || '').trim().toLowerCase();
+                var textHit = !needle || tr.dataset.search.indexOf(needle) !== -1;
+                var isAnom = tr.dataset.anom === '1';
+                var isScored = tr.dataset.scored === '1';
+                var statusHit = statusFilter === 'all'
+                    || (statusFilter === 'scored' && isScored)
+                    || (statusFilter === 'anom' && isAnom)
+                    || (statusFilter === 'ok' && isScored && !isAnom)
+                    || (statusFilter === 'skip' && !isScored);
+                return textHit && statusHit;
+            }
+
+            function apply() {
+                var searching = !!(search.value || '').trim() || statusFilter !== 'all';
+                var liveG = {}, liveS = {}, shown = 0;
+                // pass 1: which metric rows survive the filter
+                rows.forEach(function (tr) {
+                    var hit = matches(tr);
+                    tr.dataset.hit = hit ? '1' : '0';
+                    if (hit) { liveG[tr.dataset.group] = true; liveS[tr.dataset.sub] = true; shown++; }
+                });
+                // pass 2: a filtered view auto-expands so hits are never hidden
+                rows.forEach(function (tr) {
+                    var open = searching || (openG[tr.dataset.group] && openS[tr.dataset.sub]);
+                    tr.classList.toggle('hidden', tr.dataset.hit !== '1' || !open);
+                });
+                subRows.forEach(function (tr) {
+                    var live = !!liveS[tr.dataset.sub];
+                    tr.classList.toggle('hidden', !live || !(searching || openG[tr.dataset.group]));
+                    tr.classList.toggle('open', searching || !!openS[tr.dataset.sub]);
+                });
+                grpRows.forEach(function (tr) {
+                    tr.classList.toggle('hidden', !liveG[tr.dataset.group]);
+                    tr.classList.toggle('open', searching || !!openG[tr.dataset.group]);
+                });
+                countEl.textContent = shown;
+                noMatch.classList.toggle('hidden', shown > 0);
+            }
+
+            grpRows.forEach(function (tr) {
+                tr.addEventListener('click', function () {
+                    openG[tr.dataset.group] = !openG[tr.dataset.group];
+                    apply();
+                });
+            });
+            subRows.forEach(function (tr) {
+                tr.addEventListener('click', function () {
+                    openS[tr.dataset.sub] = !openS[tr.dataset.sub];
+                    openG[tr.dataset.group] = true;   // can't show a sub inside a closed group
+                    apply();
+                });
+            });
+            document.getElementById('expandAll').addEventListener('click', function () {
+                grpRows.forEach(function (t) { openG[t.dataset.group] = true; });
+                subRows.forEach(function (t) { openS[t.dataset.sub] = true; });
+                apply();
+            });
+            document.getElementById('collapseAll').addEventListener('click', function () {
+                grpRows.forEach(function (t) { openG[t.dataset.group] = false; });
+                subRows.forEach(function (t) { openS[t.dataset.sub] = false; });
+                apply();
+            });
+
+            search.addEventListener('input', apply);
+            document.querySelectorAll('.mfilter a').forEach(function (a) {
+                a.addEventListener('click', function () {
+                    statusFilter = a.getAttribute('data-filter');
+                    document.querySelectorAll('.mfilter a').forEach(function (x) {
+                        x.classList.toggle('on', x === a);
+                    });
+                    apply();
+                });
+            });
+
+            // sort: reorders metric rows WITHIN their subject group, so the
+            // pipeline > subject hierarchy stays intact.
+            document.querySelectorAll('th.sortable').forEach(function (th) {
+                th.addEventListener('click', function () {
+                    var key = th.dataset.key, numeric = th.dataset.type === 'num';
+                    var desc = !th.classList.contains('desc');
+                    document.querySelectorAll('th.sortable').forEach(function (o) {
+                        o.classList.remove('asc', 'desc');
+                    });
+                    th.classList.add(desc ? 'desc' : 'asc');
+                    subRows.forEach(function (sub) {
+                        var kids = rows.filter(function (r) { return r.dataset.sub === sub.dataset.sub; });
+                        kids.sort(function (a, b) {
+                            var va = a.dataset[key] || '', vb = b.dataset[key] || '';
+                            if (numeric) {
+                                va = parseFloat(va) || 0; vb = parseFloat(vb) || 0;
+                                return desc ? vb - va : va - vb;
+                            }
+                            return desc ? vb.localeCompare(va) : va.localeCompare(vb);
+                        });
+                        var anchor = sub;
+                        kids.forEach(function (k) { anchor.after(k); anchor = k; });
+                    });
+                });
+            });
+
+            apply();   // establish initial expand state
+        }
+    })();
+    </script>
+</body>
+</html>

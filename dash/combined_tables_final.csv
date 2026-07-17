@@ -1,0 +1,511 @@
+Event Name,Parameters,Data type,Description,Status
+USER_ONBOARDED,first_name,,Customer First Name,GreenAvailable in v7.5
+USER_ONBOARDED,String,,,
+USER_ONBOARDED,email,,,
+USER_ONBOARDED,birthday,,,
+USER_ONBOARDED,marketing_consent,,"Checkbox only available for some regions. If it is not shown, then value will be unseen",
+USER_ONBOARDED,requires_second_opt_in,,Only Germany and Austria require second opt in currently.,
+CHECKOUT_STARTED,subscription_plan,,"Choose the plan highlighted in pink, else if plans are both pink or neither pink then first plan on the list.monthly if Monthly Planannual if Annual Plan",GreenAvailable in v7.5
+CHECKOUT_STARTED,Boolean,,,
+CHECKOUT_STARTED,subscription_costYellowOpTIONAL,,,
+CHECKOUT_STARTED,currencyYellowOpTIONAL,,,
+CHECKOUT_STARTED,plan_trial_lengthYellowOpTIONAL,,,
+CART_UPDATED,subscription_plan,,"Choose the plan highlighted in pink, else if plans are both pink or neither pink then first plan on the list.monthly if Monthly Planannual if Annual Plan",GreenAvailable in v7.5
+CART_UPDATED,Boolean,,,
+CART_UPDATED,subscription_costYellowOpTIONAL,,,
+CART_UPDATED,currencyYellowOpTIONAL,,,
+CART_UPDATED,plan_trial_lengthYellowOpTIONAL,,,
+PAYMENT_INFO_ENTERED,subscription_plan,,"Choose the plan highlighted in pink, else if plans are both pink or neither pink then first plan on the list.monthly if Monthly Planannual if Annual Plan",GreenAvailable in v7.5
+PAYMENT_INFO_ENTERED,Boolean,,,
+PAYMENT_INFO_ENTERED,subscription_costYellowOpTIONAL,,,
+PAYMENT_INFO_ENTERED,currencyYellowOpTIONAL,,,
+PAYMENT_INFO_ENTERED,plan_trial_lengthYellowOpTIONAL,,,
+PAYMENT_INFO_ENTERED,payment_method,,,
+PAYMENT_INFO_ENTERED,payment_success_flag,,,
+SECOND_OPT_IN,second_opt_in_response,,"true if member agrees to marketing emails, false otherwise.",Ready for Dev
+IMAGE_TBC,,,,
+PAYMENT_SUCCESSFUL,subscription_plan,,"Choose the plan highlighted in pink, else if plans are both pink or neither pink then first plan on the list.monthly if Monthly Planannual if Annual Plan",GreenAvailable in v7.5
+PAYMENT_SUCCESSFUL,Boolean,,,
+PAYMENT_SUCCESSFUL,subscription_costYellowOpTIONAL,,,
+PAYMENT_SUCCESSFUL,currencyYellowOpTIONAL,,,
+PAYMENT_SUCCESSFUL,plan_trial_lengthYellowOpTIONAL,,,
+PAYMENT_SUCCESSFUL,payment_method,,,
+WORKOUT_SEARCHED,query,,"Search string submitted for workout lookup, Abs",GreenAvailable in v7.5
+WORKOUT_SEARCHED,Array,,,
+PROGRAM_LIST_VIEWED,tab_name,,Tab Name,GreenAvailable in v7.5
+PROGRAM_VIEWED,program_id,,Program ID,GreenAvailable in v7.5
+PROGRAM_VIEWED,String,,,
+PROGRAM_VIEWED,trainer_id,,,
+PROGRAM_VIEWED,trainer_name,,,
+PROGRAM_VIEWED,tags,,,
+PROGRAM_VIEWED,attributes,,,
+PROGRAM_VIEWED,image_url,,,
+WORKOUT_VIEWED,workout_id,,Workout Id,GreenAvailable in v7.5
+WORKOUT_VIEWED,String,,,
+WORKOUT_VIEWED,circuit_countYellowOpTIONAL,,"Always 0 for LISS, HIIT and Rest",
+WORKOUT_VIEWED,exercise_countYellowOpTIONAL,,"Always 0 for LISS, HIIT and Rest",
+WORKOUT_VIEWED,trainer_id,,,
+WORKOUT_VIEWED,trainer_name,,,
+WORKOUT_VIEWED,durationYellowOpTIONAL,,"Resistance and Recovery - Rehab: use focus.estimated_durationLISS: Value first seen when overview opened in secondsHIIT: Value of main timer, work & rest intervals in seconds when first opened in the format: {main timer}:{work_interval}:{rest_interval}Always 0 for Rest",
+WORKOUT_VIEWED,image_url,,"Resistance and Recovery will use focus.card_image, empty value for Cardio",
+WORKOUT_VIEWED,sub_category,,,
+EXERCISE_VIEWED,exercise_id,,Exercise ID,GreenAvailable in v7.5
+EXERCISE_VIEWED,String,,,
+EXERCISE_VIEWED,volume_type,,,
+EXERCISE_VIEWED,volume,,,
+EXERCISE_VIEWED,image_url,,,
+TRAINER_LIST_VIEWED,tab_name,,Tab name,GreenAvailable in v7.5
+TRAINER_VIEWED,trainer_id,,Trainer Id,GreenAvailable in v7.5
+TRAINER_VIEWED,String,,,
+TRAINER_VIEWED,image_url,,User hero_image_url,
+WORKOUT_SCHEDULED,workout_id,,Workout Id of the individual workout,GreenAvailable in v7.5
+WORKOUT_SCHEDULED,String,,,
+WORKOUT_RESCHEDULED,workout_id,,Workout Id of the individual workout,GreenAvailable in v7.5
+WORKOUT_RESCHEDULED,String,,,
+WORKOUT_FAVORITES,workout_id,,Workout Id of the individual workout,GreenAvailable in v7.5
+WORKOUT_FAVORITES,String,,,Use title if from Workout Favourite object
+WORKOUT_FAVORITES,image_url,,,
+WORKOUT_UNFAVORITES,workout_id,,Workout Id of the individual workout,GreenAvailable in v7.5
+WORKOUT_UNFAVORITES,String,,,Use title if from Workout Favourite object
+WORKOUT_UNFAVORITES,image_url,,,
+WORKOUT_SHARED,share_via,,Method of sharing,GreenAvailable in v7.5
+WORKOUT_SHARED,String,,,"This is the original share message that the apps pre-populate, and not what the member types in afterwards."
+WORKOUT_SHARED,workout_id,,,
+WORKOUT_SHARED,workout_name,,,
+WORKOUT_SHARED,circuit_countYellowOpTIONAL,,Use section count,
+WORKOUT_SHARED,exercise_countYellowOpTIONAL,,,
+WORKOUT_SHARED,trainer_id,,,
+WORKOUT_SHARED,trainer_name,,,
+WORKOUT_SHARED,durationYellowOpTIONAL,,Use focus.estimated_duration,
+WORKOUT_SHARED,image_url,,,
+WORKOUT_SHARED,sub_category,,,
+WORKOUT_STARTED,workout_id,,Workout Id,GreenAvailable in v7.5
+WORKOUT_STARTED,String,,,
+WORKOUT_STARTED,circuit_countYellowOpTIONAL,,"Always 0 for LISS, HIIT and Rest",
+WORKOUT_STARTED,exercise_countYellowOpTIONAL,,"Always 0 for LISS, HIIT and Rest",
+WORKOUT_STARTED,trainer_id,,,
+WORKOUT_STARTED,trainer_name,,,
+WORKOUT_STARTED,durationYellowOpTIONAL,,"Resistance and Recovery - Rehab: use focus.estimated_durationLISS: 0 for count up, inputted value for count down in secondsHIIT: Value of main timer, work & rest intervals in seconds in the format: {main timer}:{work_interval}:{rest_interval}Always 0 for Rest",System Jira5b0d831a-b5a4-37b3-a5a2-f6aab217d683SWEAT-24885
+WORKOUT_STARTED,image_url,,"Resistance and Recovery will use focus.card_image, empty value for Cardio",
+WORKOUT_STARTED,sub_category,,,
+WORKOUT_PAUSED,workout_id,,Workout Id,GreenAvailable in v7.5
+WORKOUT_PAUSED,String,,,
+WORKOUT_PAUSED,circuit_countYellowOpTIONAL,,"Always 0 for LISS, HIIT and Rest",
+WORKOUT_PAUSED,exercise_countYellowOpTIONAL,,"Always 0 for LISS, HIIT and Rest",
+WORKOUT_PAUSED,trainer_id,,,
+WORKOUT_PAUSED,trainer_name,,,
+WORKOUT_PAUSED,durationYellowOpTIONAL,,"Resistance and Recovery - Rehab: use focus.estimated_durationLISS: 0 for count up, inputted value for count down in secondsHIIT: Value of main timer, work & rest intervals in seconds in the format: {main timer}:{work_interval}:{rest_interval}Always 0 for Rest",
+WORKOUT_PAUSED,image_url,,"Resistance and Recovery will use focus.card_image, empty value for Cardio",
+WORKOUT_PAUSED,sub_category,,,
+SECTION_SKIPPED,section_id,,Section ID,GreenAvailable in v7.5
+SECTION_SKIPPED,String,,,
+SECTION_SKIPPED,exercise_count,,We need to iterate through activities array and count Exercises.,
+WORKOUT_QUIT,workout_id,,Workout Id,GreenAvailable in v7.5
+WORKOUT_QUIT,String,,,
+WORKOUT_QUIT,circuit_countYellowOpTIONAL,,"Always 0 for LISS, HIIT and Rest",
+WORKOUT_QUIT,exercise_countYellowOpTIONAL,,"Always 0 for LISS, HIIT and Rest",
+WORKOUT_QUIT,trainer_id,,,
+WORKOUT_QUIT,trainer_name,,,
+WORKOUT_QUIT,durationYellowOpTIONAL,,"Resistance and Recovery - Rehab: use focus.estimated_durationLISS: 0 for count up, inputted value for count down in secondsHIIT: Value of main timer, work & rest intervals in seconds in the format: {main timer}:{work_interval}:{rest_interval}Always 0 for Rest",
+WORKOUT_QUIT,image_url,,"Resistance and Recovery will use focus.card_image, empty value for Cardio",
+WORKOUT_QUIT,sub_category,,,
+WORKOUT_MARKED_AS_COMPLETED,workout_id,,Workout Id,GreenAvailable in v7.5
+WORKOUT_MARKED_AS_COMPLETED,String,,,
+WORKOUT_MARKED_AS_COMPLETED,circuit_countYellowOpTIONAL,,"Always 0 for LISS, HIIT and Rest",
+WORKOUT_MARKED_AS_COMPLETED,exercise_countYellowOpTIONAL,,"Always 0 for LISS, HIIT and Rest",
+WORKOUT_MARKED_AS_COMPLETED,trainer_id,,,
+WORKOUT_MARKED_AS_COMPLETED,trainer_name,,,
+WORKOUT_MARKED_AS_COMPLETED,durationYellowOpTIONAL,,"Resistance and Recovery - Rehab: use focus.estimated_durationLISS: 0 for count up, inputted value for count down in secondsHIIT: Value of main timer, work & rest intervals in seconds in the format: {main timer}:{work_interval}:{rest_interval}Always 0 for Rest",
+WORKOUT_MARKED_AS_COMPLETED,image_url,,"Resistance and Recovery will use focus.card_image, empty value for Cardio",
+WORKOUT_MARKED_AS_COMPLETED,sub_category,,,
+WORKOUT_COMPLETED,workout_id,,Workout Id,GreenAvailable in v7.5
+WORKOUT_COMPLETED,String,,,
+WORKOUT_COMPLETED,circuit_countYellowOpTIONAL,,"Always 0 for LISS, HIIT and Rest",
+WORKOUT_COMPLETED,exercise_countYellowOpTIONAL,,"Always 0 for LISS, HIIT and Rest",
+WORKOUT_COMPLETED,trainer_id,,,
+WORKOUT_COMPLETED,trainer_name,,,
+WORKOUT_COMPLETED,durationYellowOpTIONAL,,"Resistance and Recovery - Rehab: use focus.estimated_durationLISS: 0 for count up, inputted value for count down in secondsHIIT: Value of main timer, work & rest intervals in seconds in the format: {main timer}:{work_interval}:{rest_interval}Always 0 for Rest",
+WORKOUT_COMPLETED,image_url,,"Resistance and Recovery will use focus.card_image, empty value for Cardio",
+WORKOUT_COMPLETED,sub_category,,,
+RECIPE_SEARCHED,query,,Search string submitted for Recipe lookup,GreenAvailable in v7.5
+RECIPE_SEARCHED,Array,,,"Parent Group Code Names:Meal Type: meal_typeDietary Preference: dietary_preferenceCuisines: cuisinesPrep Time: prep_timeCook Time: cook_timeTotal Time: total_timeFilter Code:For preference type filter, use filter’s code.For time type filter, use {min}-{max}"
+RECIPE_LIST_VIEWED,recipe_collection_id,,Recipe Collection ID,GreenAvailable in v7.5
+RECIPE_LIST_VIEWED,String,,,
+RECIPE_LIST_VIEWED,recipe_collection_name,,,
+RECIPE_LIST_VIEWED,recipes_count,,,
+RECIPE_LIST_VIEWED,image_url,,,
+RECIPE_VIEWED,recipe_id,,Recipes Id,GreenAvailable in v7.5
+RECIPE_VIEWED,String,,,
+RECIPE_VIEWED,recipe_name,,,
+RECIPE_VIEWED,prep_duration,,,
+RECIPE_VIEWED,cook_duration,,,
+RECIPE_VIEWED,total_duration,,,
+RECIPE_VIEWED,serving_size,,,
+RECIPE_VIEWED,image_url,,,
+RECIPE_FAVORITES,recipe_id,,Recipes Id,GreenAvailable in v7.5
+RECIPE_FAVORITES,String,,,
+RECIPE_FAVORITES,recipe_name,,,
+RECIPE_FAVORITES,total_duration,,,
+RECIPE_FAVORITES,serving_size,,,
+RECIPE_FAVORITES,image_url,,,
+RECIPE_UNFAVORITES,recipe_id,,Recipes Id,GreenAvailable in v7.5
+RECIPE_UNFAVORITES,String,,,
+RECIPE_UNFAVORITES,recipe_name,,,
+RECIPE_UNFAVORITES,total_duration,,,
+RECIPE_UNFAVORITES,serving_size,,,
+RECIPE_UNFAVORITES,image_url,,,
+PROFILE_BUTTON_CLICKED,first_name,,Customer First Name,ios 7.5.7 Android 7.5.4Green
+PROFILE_BUTTON_CLICKED,String,,,
+PROFILE_BUTTON_CLICKED,email,,,
+PROFILE_BUTTON_CLICKED,cancel_initiated,,Customer First Name,ios 7.5.7 Android 7.5.4Green
+PROFILE_BUTTON_CLICKED,String,,,
+PROFILE_BUTTON_CLICKED,email,,,
+I_AM_NOT_EXERCISING_ANYMORE,first_name,,Customer First Name,ios 7.5.7 Android 7.5.4Green
+I_AM_NOT_EXERCISING_ANYMORE,String,,,
+I_AM_NOT_EXERCISING_ANYMORE,email,,,
+TOO_EXPENSIVE,first_name,,Customer First Name,ios 7.5.7 Android 7.5.4Green
+TOO_EXPENSIVE,String,,,
+TOO_EXPENSIVE,email,,,
+I_AM_PREGNANT,first_name,,Customer First Name,ios 7.5.7 Android 7.5.4Green
+I_AM_PREGNANT,String,,,
+I_AM_PREGNANT,email,,,
+NO_REASON,first_name,,Customer First Name,ios 7.5.7 Android 7.5.4Green
+NO_REASON,String,,,
+NO_REASON,email,,,
+NO_REASON,cancel_confirmed,,Customer First Name,ios 7.5.7 Android 7.5.4Green
+NO_REASON,String,,,
+NO_REASON,email,,,
+PROGRAM_PREFERENCES,first_name,,Customer First Name,ios 7.5.7 Android 7.5.4Green
+PROGRAM_PREFERENCES,String,,,
+PROGRAM_PREFERENCES,email,,,
+RECOMMEND,first_name,,Customer First Name,ios 7.5.7 Android 7.5.4Green
+RECOMMEND,String,,,
+RECOMMEND,email,,,
+RECOMMEND,is_onboarding,,,
+PRIMARY_GOAL,first_name,,Customer First Name,ios 7.5.7 Android 7.5.4Green
+PRIMARY_GOAL,String,,,
+PRIMARY_GOAL,email,,,
+PRIMARY_GOAL,is_onboarding,,,
+PRIMARY_GOAL,survey_answer,,,
+FITNESS_LEVEL,first_name,,Customer First Name,ios 7.5.7 Android 7.5.4Green
+FITNESS_LEVEL,String,,,
+FITNESS_LEVEL,email,,,
+FITNESS_LEVEL,is_onboarding,,,
+FITNESS_LEVEL,survey_answer,,,
+HOME_VS_GYM_TRAINING,first_name,,Customer First Name,ios 7.5.7 Android 7.5.4Green
+HOME_VS_GYM_TRAINING,String,,,
+HOME_VS_GYM_TRAINING,email,,,
+HOME_VS_GYM_TRAINING,is_onboarding,,,
+HOME_VS_GYM_TRAINING,survey_answer,,,
+EQUIPMENT_VS_NON_EQUIPMENT_TRAINING,first_name,,Customer First Name,ios 7.5.7 Android 7.5.4Green
+EQUIPMENT_VS_NON_EQUIPMENT_TRAINING,String,,,
+EQUIPMENT_VS_NON_EQUIPMENT_TRAINING,email,,,
+EQUIPMENT_VS_NON_EQUIPMENT_TRAINING,is_onboarding,,,
+EQUIPMENT_VS_NON_EQUIPMENT_TRAINING,survey_answer,,,
+TRAINING_STYLE,first_name,,Customer First Name,ios 7.5.7 Android 7.5.4Green
+TRAINING_STYLE,String,,,
+TRAINING_STYLE,email,,,
+TRAINING_STYLE,is_onboarding,,,
+TRAINING_STYLE,survey_answer,,,
+PROGRAM_SELECTION,first_name,,Customer First Name,ios 7.5.7 Android 7.5.4Green
+PROGRAM_SELECTION,String,,,
+PROGRAM_SELECTION,email,,,
+PROGRAM_SELECTION,is_recommended,,,
+PROGRAM_SELECTION,is_onboarding,,,
+PROGRAM_CONFIRM,first_name,,Customer First Name,ios 7.5.7 Android 7.5.4Green
+PROGRAM_CONFIRM,String,,,
+PROGRAM_CONFIRM,email,,,
+PROGRAM_CONFIRM,is_recommended,,,
+PROGRAM_CONFIRM,is_onboarding,,,
+STRIPE_HOSTED_CHECKOUT_STARTED,member_ID,,Customer ID,Phase 1AVAILABLE ios 7.6.3GreenPhase 2AVAILABLE ios 7.6.5GreenPhase 3AVAILABLE ios 7.6.9Green
+STRIPE_HOSTED_CHECKOUT_STARTED,String,,,
+STRIPE_HOSTED_CHECKOUT_STARTED,web_product_sku,,,
+STRIPE_HOSTED_CHECKOUT_SUCCEEDED,member_ID,,Customer ID,Phase 1AVAILABLE ios 7.6.3GreenPhase 2AVAILABLE ios 7.6.5GreenPhase 3AVAILABLE ios 7.6.9Green
+STRIPE_HOSTED_CHECKOUT_SUCCEEDED,String,,,
+STRIPE_HOSTED_CHECKOUT_SUCCEEDED,web_product_sku,,,
+STRIPE_HOSTED_CHECKOUT_FAILED,member_ID,,Customer ID,Phase 1AVAILABLE ios 7.6.3GreenPhase 2AVAILABLE ios 7.6.5GreenPhase 3AVAILABLE ios 7.6.9Green
+STRIPE_HOSTED_CHECKOUT_FAILED,String,,,
+STRIPE_HOSTED_CHECKOUT_FAILED,web_product_sku,,,
+STRIPE_HOSTED_CHECKOUT_CANCELLED,member_ID,,Customer ID,Phase 1AVAILABLE ios 7.6.3GreenPhase 2AVAILABLE ios 7.6.5GreenPhase 3AVAILABLE ios 7.6.9Green
+STRIPE_HOSTED_CHECKOUT_CANCELLED,String,,,
+STRIPE_HOSTED_CHECKOUT_CANCELLED,web_product_sku,,,
+ACTIVITY_TAB_VIEWED,,,,AVAILABLE IN V7.6.1Green
+PROGRESS_TRACKING_TOUR_STARTED,,,,AVAILABLE IN V7.6.1Green
+PROGRESS_TRACKING_TOUR_CONTINUED,,,,AVAILABLE IN V7.6.1Green
+PROGRESS_DASHBOARD_VIEWED,,,,AVAILABLE IN V7.6.1Green
+,,,,Will be called when member opens Activity tab and Progress tab shown by default
+ACHIEVEMENTS_LIST_VIEWED,,,,AVAILABLE IN V7.6.1Green
+DAILY_METRIC_DETAIL_VIEWED,metric_type,,Steps: StepsDistance :DistanceWater :WaterActive Calories :Active Calories,AVAILABLE IN V7.6.1Green
+DAILY_METRIC_LOGGED,metric_type,,Steps: StepsDistance :DistanceWater :WaterActive Calories :Active Calories,AVAILABLE IN V7.6.1Green
+WORKOUT_LOGGED,,,,AVAILABLE IN V7.6.1Green
+SWEAT_DROP_TAPPED,,,,AVAILABLE IN V7.6.1Green
+RECOMMENDED_PROGRAM_TAPPED,program_code_name,,Program Code Name,AVAILABLE IN V7.6.5Green
+RECOMMENDED_PROGRAM_TAPPED,String,,,Capture where the user entered the Recommendation page from (i.e. onboarding survey)
+RECENTLY_ADDED_PROGRAM_TAPPED,program_code_name,,Program Code Name,AVAILABLE IN V7.6.5Green
+RECENTLY_ADDED_PROGRAM_TAPPED,String,,,Capture where the user entered the Recommendation page from (i.e. onboarding survey)
+RECENTLY_ADDED_PROGRAM_TAPPED,element_order,,,
+PROGRAM_CAROUSEL_PROGRAM_TAPPED,program_code_name,,Program Code Name,AVAILABLE IN V7.6.5Green
+PROGRAM_CAROUSEL_PROGRAM_TAPPED,String,,,Capture where the user entered the Recommendation page from (i.e. onboarding survey)
+PROGRAM_CAROUSEL_PROGRAM_TAPPED,element_order,,l,
+PROGRAM_CAROUSEL_SEE_ALL_TAPPED,source,,onboarding if from onboardingprogram_preferences if from Profile → Program Preferences,AVAILABLE IN V7.6.5Green
+TRAINERS_OVERVIEW_TRAINER_TAPPED,trainer_code_name,,Trainer code name,AVAILABLE IN V7.6.5Green
+TRAINERS_OVERVIEW_TRAINER_TAPPED,String,,,Capture where the user entered the Recommendation page from (i.e. onboarding survey)
+TRAINERS_OVERVIEW_TRAINER_TAPPED,element_order,,,
+TRAINERS_OVERVIEW_SEE_ALL_TAPPED,source,,onboarding if from onboardingprogram_preferences if from Profile → Program Preferences,AVAILABLE IN V7.6.5Green
+PROGRAM_LIBRARY_TAB_TAPPED,tab_name,,all for All TabUse program attribute codeName for other tabs to be consistent across languages,AVAILABLE IN V7.6.5Green
+PROGRAM_LIBRARY_TAB_TAPPED,String,,,Capture where the user entered the Recommendation page from (i.e. onboarding survey)
+PROGRAM_LIBRARY_TAB_TAPPED,element_order,,Capture the sequence of clicks within this carousel,
+PROGRAM_LIBRARY_TAB_TAPPED,landed,,Capture whether the tab is clicked on (i.e. to be able to assess whether users go back to ‘all’ rather than just land on it). To run only on first load or tab tapped,
+PROGRAM_LIBRARY_FILTER_TAPPED,source,,onboarding if from onboardingprogram_preferences if from Profile → Program Preferences,AVAILABLE IN V7.6.5Green
+PROGRAM_LIBRARY_SORT_TAPPED,source,,onboarding if from onboardingprogram_preferences if from Profile → Program Preferences,AVAILABLE IN V7.6.5Green
+PROGRAM_LIBRARY_FILTER_OPTIONS_APPLIED,filter_names,,starting_outbeginner intermediate advanced,AVAILABLE IN V7.6.5Green
+PROGRAM_LIBRARY_FILTER_OPTIONS_APPLIED,String,,,Capture where the user entered the Recommendation page from (i.e. onboarding survey)
+PROGRAM_LIBRARY_FILTER_CANCELLED,source,,onboarding if from onboardingprogram_preferences if from Profile → Program Preferences,AVAILABLE IN V7.6.5Green
+PROGRAM_LIBRARY_SORT_OPTION_APPLIED,sort_name,,Use the string key to be consistent across languages  default for Defaulta_to_z for A-Ztrainer for Trainer,AVAILABLE IN V7.6.5Green
+PROGRAM_LIBRARY_SORT_OPTION_APPLIED,String,,,Capture where the user entered the Recommendation page from (i.e. onboarding survey)
+PROGRAM_LIBRARY_SORT_CANCELLED,source,,onboarding if from onboardingprogram_preferences if from Profile → Program Preferences,AVAILABLE IN V7.6.5Green
+PROGRAM_LIBRARY_PROGRAM_TAPPED,program_code_name,,Program Code Name,AVAILABLE IN V7.6.5Green
+PROGRAM_LIBRARY_PROGRAM_TAPPED,String,,,Capture where the user entered the Recommendation page from (i.e. onboarding survey)
+PROGRAM_START_TAPPED,program_code_name,,Program Code Name,AVAILABLE IN V7.6.5Green
+PROGRAM_START_TAPPED,String,,,Capture name of start point of program that user selects once
+PROGRAM_START_TAPPED,default_start_point,,Capture if user selects a start point that is not the default,
+PROGRAM_START_TAPPED,source,,,
+PROGRAM_GOAL_FOR_THIS_WEEK_BUTTON_TAPPED,program_code_name,,Program Code Name,AVAILABLE IN V7.6.5Green
+PROGRAM_GOAL_FOR_THIS_WEEK_BUTTON_TAPPED,Number,,,Capture program week of user
+PROGRAM_GOAL_FOR_THIS_WEEK_BUTTON_TAPPED,program_phase,,,
+PROGRAM_GOAL_FOR_THIS_WEEK_CANCELLED,program_code_name,,Program Code Name,AVAILABLE IN V7.6.5Green
+PROGRAM_GOAL_FOR_THIS_WEEK_CANCELLED,Number,,,Capture program week of user
+PROGRAM_GOAL_FOR_THIS_WEEK_CANCELLED,program_phase,,,
+PROGRAM_GOAL_FOR_THIS_WEEK_SKIP_TAPPED,program_code_name,,Program Code Name,AVAILABLE IN V7.6.5Green
+PROGRAM_GOAL_FOR_THIS_WEEK_SKIP_TAPPED,Number,,,Capture program week of user
+PROGRAM_GOAL_FOR_THIS_WEEK_SKIP_TAPPED,program_phase,,,
+PLANNER_CALENDAR_VIEW_TAPPED,view_type,,timelinecalendar,AVAILABLE IN V7.6.5Green
+PLANNER_SETTINGS_TAPPED,,,,AVAILABLE IN V7.6.5Green
+USER_ONBOARDED,first_name,,Customer First Name,Available in v7.7Green
+USER_ONBOARDED,String,,,
+USER_ONBOARDED,email,,,
+USER_ONBOARDED,birthday,,,
+USER_ONBOARDED,login_method,,NewPurple,
+CHECKOUT_STARTED,subscription_plan,,"Choose the plan highlighted in pink, else if plans are both pink or neither pink then first plan on the list.monthly if Monthly Planannual if Annual Plan",Available in v7.7Green
+CHECKOUT_STARTED,Boolean,,,
+CHECKOUT_STARTED,subscription_costOpTIONALYellow,,,
+CHECKOUT_STARTED,currencyOpTIONALYellow,,,
+CHECKOUT_STARTED,plan_trial_lengthOpTIONALYellow,,,
+CHECKOUT_STARTED,login_method,,NewPurple,
+CART_UPDATED,subscription_plan,,"Choose the plan highlighted in pink, else if plans are both pink or neither pink then first plan on the list.monthly if Monthly Planannual if Annual Plan",Available in v7.7Green
+CART_UPDATED,Boolean,,,
+CART_UPDATED,subscription_costOpTIONALYellow,,,
+CART_UPDATED,currencyOpTIONALYellow,,,
+CART_UPDATED,plan_trial_lengthOpTIONALYellow,,,
+CART_UPDATED,login_method,,NewPurple,
+PAYMENT_INFO_ENTERED,subscription_plan,,"Choose the plan highlighted in pink, else if plans are both pink or neither pink then first plan on the list.monthly if Monthly Planannual if Annual Plan",Available in v7.7Green
+PAYMENT_INFO_ENTERED,Boolean,,,
+PAYMENT_INFO_ENTERED,subscription_costOpTIONALYellow,,,
+PAYMENT_INFO_ENTERED,currencyOpTIONALYellow,,,
+PAYMENT_INFO_ENTERED,plan_trial_lengthOpTIONALYellow,,,
+PAYMENT_INFO_ENTERED,payment_method,,,
+PAYMENT_INFO_ENTERED,payment_success_flag,,,
+PAYMENT_INFO_ENTERED,login_method,,NewPurple,
+PAYMENT_SUCCESSFUL,subscription_plan,,"Choose the plan highlighted in pink, else if plans are both pink or neither pink then first plan on the list.monthly if Monthly Planannual if Annual Plan",Available in v7.5Green
+PAYMENT_SUCCESSFUL,Boolean,,,
+PAYMENT_SUCCESSFUL,subscription_costOpTIONALYellow,,,
+PAYMENT_SUCCESSFUL,currencyOpTIONALYellow,,,
+PAYMENT_SUCCESSFUL,exchange_rateOpTIONALYellow,,,
+PAYMENT_SUCCESSFUL,plan_trial_lengthOpTIONALYellow,,,
+PAYMENT_SUCCESSFUL,payment_method,,,
+PAYMENT_SUCCESSFUL,login_method,,NewPurple,
+PAYWALL_VIEWED,first_name,,Customer First Name,
+PAYWALL_VIEWED,Customer Last Name,,,
+PAYWALL_VIEWED,Customer Email,,,
+PAYWALL_VIEWED,Customer Birth Date,,,
+PAYWALL_VIEWED,EmailFacebookGoogleApple,,,
+CREATE_ACCOUNT_BUTTON_PRESSED,first_name,,Customer First Name,
+CREATE_ACCOUNT_BUTTON_PRESSED,last_name,,Customer Last Name,
+CREATE_ACCOUNT_BUTTON_PRESSED,email,,Customer Email,
+CREATE_ACCOUNT_BUTTON_PRESSED,birthday,,Customer Birth Date,
+CREATE_ACCOUNT_BUTTON_PRESSED,login_method,,EmailFacebookGoogleApple,
+USER_ACCOUNT_CREATED,first_name,,Customer First Name,
+USER_ACCOUNT_CREATED,last_name,,Customer Last Name,
+USER_ACCOUNT_CREATED,email,,Customer Email,
+USER_ACCOUNT_CREATED,birthday,,Customer Birth Date,
+USER_ACCOUNT_CREATED,login_method,,EmailFacebookGoogleApple,
+TRIAL_SUBSCRIPTION_STARTED,subscription_plan,,"Choose the plan highlighted in pink, else if plans are both pink or neither pink then first plan on the list.monthly if Monthly Planannual if Annual Plan",
+TRIAL_SUBSCRIPTION_STARTED,amount,,Cost of the subscription_plan,
+TRIAL_SUBSCRIPTION_STARTED,currency,,"Currency of the subscription_plan, e.g. AUD",
+TRIAL_SUBSCRIPTION_STARTED,plan_trial_length,,Number of days of Trial,
+TRIAL_SUBSCRIPTION_STARTED,acquisition_date,,Date of most recent acquisition event,
+TRIAL_SUBSCRIPTION_STARTED,acquisition_number,,New member = 1Winback >1,
+TRIAL_SUBSCRIPTION_STARTED,billing_country,,Billing country of the member at the time of most recent acquisition event,
+TRIAL_SUBSCRIPTION_STARTED,device_country,,Device country of the member at the time of most recent acquisition event,
+TRIAL_SUBSCRIPTION_STARTED,payment_gateway,,iOSAndroidPaypalStripe,
+TRIAL_SUBSCRIPTION_STARTED,subscription_expiry_date,,Date current subscription expires / is due to renew,
+COUPON_SUBSCRIPTION_STARTED,subscription_plan,,"Choose the plan highlighted in pink, else if plans are both pink or neither pink then first plan on the list.monthly if Monthly Planannual if Annual Plan",
+COUPON_SUBSCRIPTION_STARTED,amount,,Cost of the subscription_plan,
+COUPON_SUBSCRIPTION_STARTED,currency,,"Currency of the subscription_plan, e.g. AUD",
+COUPON_SUBSCRIPTION_STARTED,plan_trial_length,,Number of days of Trial,
+COUPON_SUBSCRIPTION_STARTED,acquisition_date,,Date of most recent acquisition event,
+COUPON_SUBSCRIPTION_STARTED,acquisition_number,,New member = 1Winback >1,
+COUPON_SUBSCRIPTION_STARTED,billing_country,,Billing country of the member at the time of most recent acquisition event,
+COUPON_SUBSCRIPTION_STARTED,device_country,,Device country of the member at the time of most recent acquisition event,
+COUPON_SUBSCRIPTION_STARTED,payment_gateway,,iOSAndroidPaypalStripe,
+COUPON_SUBSCRIPTION_STARTED,subscription_expiry_date,,Date current subscription expires / is due to renew,
+COUPON_SUBSCRIPTION_STARTED,coupon_idOpTIONALYellow,,Coupon ID of promotional offer,
+PAID_SUBSCRIPTION_(TRIAL_TO_PAYING)_STARTED,subscription_plan,,"Choose the plan highlighted in pink, else if plans are both pink or neither pink then first plan on the list.monthly if Monthly Planannual if Annual Plan",
+PAID_SUBSCRIPTION_(TRIAL_TO_PAYING)_STARTED,amount,,Cost of the subscription_plan,
+PAID_SUBSCRIPTION_(TRIAL_TO_PAYING)_STARTED,currency,,"Currency of the subscription_plan, e.g. AUD",
+PAID_SUBSCRIPTION_(TRIAL_TO_PAYING)_STARTED,acquisition_date,,Date of most recent acquisition event,
+PAID_SUBSCRIPTION_(TRIAL_TO_PAYING)_STARTED,acquisition_number,,New member = 1Winback >1,
+PAID_SUBSCRIPTION_(TRIAL_TO_PAYING)_STARTED,billing_country,,Billing country of the member at the time of most recent acquisition event,
+PAID_SUBSCRIPTION_(TRIAL_TO_PAYING)_STARTED,device_country,,Device country of the member at the time of most recent acquisition event,
+PAID_SUBSCRIPTION_(TRIAL_TO_PAYING)_STARTED,payment_gateway,,iOSAndroidPaypalStripe,
+PAID_SUBSCRIPTION_(TRIAL_TO_PAYING)_STARTED,subscription_expiry_date,,Date current subscription expires / is due to renew,
+PAID_SUBSCRIPTION_(COUPON_TO_PAYING)_STARTED,subscription_plan,,"Choose the plan highlighted in pink, else if plans are both pink or neither pink then first plan on the list.monthly if Monthly Planannual if Annual Plan",
+PAID_SUBSCRIPTION_(COUPON_TO_PAYING)_STARTED,amount,,Cost of the subscription_plan,
+PAID_SUBSCRIPTION_(COUPON_TO_PAYING)_STARTED,currency,,"Currency of the subscription_plan, e.g. AUD",
+PAID_SUBSCRIPTION_(COUPON_TO_PAYING)_STARTED,acquisition_date,,Date of most recent acquisition event,
+PAID_SUBSCRIPTION_(COUPON_TO_PAYING)_STARTED,acquisition_number,,New member = 1Winback >1,
+PAID_SUBSCRIPTION_(COUPON_TO_PAYING)_STARTED,billing_country,,Billing country of the member at the time of most recent acquisition event,
+PAID_SUBSCRIPTION_(COUPON_TO_PAYING)_STARTED,device_country,,Device country of the member at the time of most recent acquisition event,
+PAID_SUBSCRIPTION_(COUPON_TO_PAYING)_STARTED,payment_gateway,,iOSAndroidPaypalStripe,
+PAID_SUBSCRIPTION_(COUPON_TO_PAYING)_STARTED,subscription_expiry_date,,Date current subscription expires / is due to renew,
+PAID_SUBSCRIPTION_(COUPON_TO_PAYING)_STARTED,coupon OpTIONALYellow,,Coupon code used (web),
+PAID_SUBSCRIPTION_(DIRECT_TO_PAYING)_STARTED,subscription_plan,,"Choose the plan highlighted in pink, else if plans are both pink or neither pink then first plan on the list.monthly if Monthly Planannual if Annual Plan",
+PAID_SUBSCRIPTION_(DIRECT_TO_PAYING)_STARTED,amount,,Cost of the subscription_plan,
+PAID_SUBSCRIPTION_(DIRECT_TO_PAYING)_STARTED,currency,,"Currency of the subscription_plan, e.g. AUD",
+PAID_SUBSCRIPTION_(DIRECT_TO_PAYING)_STARTED,acquisition_date,,Date of most recent acquisition event,
+PAID_SUBSCRIPTION_(DIRECT_TO_PAYING)_STARTED,acquisition_number,,New member = 1Winback >1,
+PAID_SUBSCRIPTION_(DIRECT_TO_PAYING)_STARTED,billing_country,,Billing country of the member at the time of most recent acquisition event,
+PAID_SUBSCRIPTION_(DIRECT_TO_PAYING)_STARTED,device_country,,Device country of the member at the time of most recent acquisition event,
+PAID_SUBSCRIPTION_(DIRECT_TO_PAYING)_STARTED,payment_gateway,,iOSAndroidPaypalStripe,
+PAID_SUBSCRIPTION_(DIRECT_TO_PAYING)_STARTED,subscription_expiry_date,,Date current subscription expires / is due to renew,
+PAID_SUBSCRIPTION_(WINBACK_FROM_CHURNED_PAYING)_STARTED,subscription_plan,,"Choose the plan highlighted in pink, else if plans are both pink or neither pink then first plan on the list.monthly if Monthly Planannual if Annual Plan",
+PAID_SUBSCRIPTION_(WINBACK_FROM_CHURNED_PAYING)_STARTED,amount,,Cost of the subscription_plan,
+PAID_SUBSCRIPTION_(WINBACK_FROM_CHURNED_PAYING)_STARTED,currency,,"Currency of the subscription_plan, e.g. AUD",
+PAID_SUBSCRIPTION_(WINBACK_FROM_CHURNED_PAYING)_STARTED,acquisition_date,,Date of most recent acquisition event,
+PAID_SUBSCRIPTION_(WINBACK_FROM_CHURNED_PAYING)_STARTED,acquisition_number,,New member = 1Winback >1,
+PAID_SUBSCRIPTION_(WINBACK_FROM_CHURNED_PAYING)_STARTED,billing_country,,Billing country of the member at the time of most recent acquisition event,
+PAID_SUBSCRIPTION_(WINBACK_FROM_CHURNED_PAYING)_STARTED,device_country,,Device country of the member at the time of most recent acquisition event,
+PAID_SUBSCRIPTION_(WINBACK_FROM_CHURNED_PAYING)_STARTED,payment_gateway,,iOSAndroidPaypalStripe,
+PAID_SUBSCRIPTION_(WINBACK_FROM_CHURNED_PAYING)_STARTED,subscription_expiry_date,,Date current subscription expires / is due to renew,
+PAID_SUBSCRIPTION_(WINBACK_FROM_CHURNED_TRIAL)_STARTED,subscription_plan,,"Choose the plan highlighted in pink, else if plans are both pink or neither pink then first plan on the list.monthly if Monthly Planannual if Annual Plan",
+PAID_SUBSCRIPTION_(WINBACK_FROM_CHURNED_TRIAL)_STARTED,amount,,Cost of the subscription_plan,
+PAID_SUBSCRIPTION_(WINBACK_FROM_CHURNED_TRIAL)_STARTED,currency,,"Currency of the subscription_plan, e.g. AUD",
+PAID_SUBSCRIPTION_(WINBACK_FROM_CHURNED_TRIAL)_STARTED,acquisition_date,,Date of most recent acquisition event,
+PAID_SUBSCRIPTION_(WINBACK_FROM_CHURNED_TRIAL)_STARTED,acquisition_number,,New member = 1Winback >1,
+PAID_SUBSCRIPTION_(WINBACK_FROM_CHURNED_TRIAL)_STARTED,billing_country,,Billing country of the member at the time of most recent acquisition event,
+PAID_SUBSCRIPTION_(WINBACK_FROM_CHURNED_TRIAL)_STARTED,device_country,,Device country of the member at the time of most recent acquisition event,
+PAID_SUBSCRIPTION_(WINBACK_FROM_CHURNED_TRIAL)_STARTED,payment_gateway,,iOSAndroidPaypalStripe,
+PAID_SUBSCRIPTION_(WINBACK_FROM_CHURNED_TRIAL)_STARTED,subscription_expiry_date,,Date current subscription expires / is due to renew,
+PAID_SUBSCRIPTION_(WINBACK_FROM_CANCELLED_PAYING)_STARTED,subscription_plan,,"Choose the plan highlighted in pink, else if plans are both pink or neither pink then first plan on the list.monthly if Monthly Planannual if Annual Plan",
+PAID_SUBSCRIPTION_(WINBACK_FROM_CANCELLED_PAYING)_STARTED,amount,,Cost of the subscription_plan,
+PAID_SUBSCRIPTION_(WINBACK_FROM_CANCELLED_PAYING)_STARTED,currency,,"Currency of the subscription_plan, e.g. AUD",
+PAID_SUBSCRIPTION_(WINBACK_FROM_CANCELLED_PAYING)_STARTED,acquisition_date,,Date of most recent acquisition event,
+PAID_SUBSCRIPTION_(WINBACK_FROM_CANCELLED_PAYING)_STARTED,acquisition_number,,New member = 1Winback >1,
+PAID_SUBSCRIPTION_(WINBACK_FROM_CANCELLED_PAYING)_STARTED,billing_country,,Billing country of the member at the time of most recent acquisition event,
+PAID_SUBSCRIPTION_(WINBACK_FROM_CANCELLED_PAYING)_STARTED,device_country,,Device country of the member at the time of most recent acquisition event,
+PAID_SUBSCRIPTION_(WINBACK_FROM_CANCELLED_PAYING)_STARTED,payment_gateway,,iOSAndroidPaypalStripe,
+PAID_SUBSCRIPTION_(WINBACK_FROM_CANCELLED_PAYING)_STARTED,subscription_expiry_date,,Date current subscription expires / is due to renew,
+PAID_SUBSCRIPTION_(WINBACK_FROM_CANCELLED_TRIAL)_STARTED,subscription_plan,,"Choose the plan highlighted in pink, else if plans are both pink or neither pink then first plan on the list.monthly if Monthly Planannual if Annual Plan",
+PAID_SUBSCRIPTION_(WINBACK_FROM_CANCELLED_TRIAL)_STARTED,amount,,Cost of the subscription_plan,
+PAID_SUBSCRIPTION_(WINBACK_FROM_CANCELLED_TRIAL)_STARTED,currency,,"Currency of the subscription_plan, e.g. AUD",
+PAID_SUBSCRIPTION_(WINBACK_FROM_CANCELLED_TRIAL)_STARTED,acquisition_date,,Date of most recent acquisition event,
+PAID_SUBSCRIPTION_(WINBACK_FROM_CANCELLED_TRIAL)_STARTED,acquisition_number,,New member = 1Winback >1,
+PAID_SUBSCRIPTION_(WINBACK_FROM_CANCELLED_TRIAL)_STARTED,billing_country,,Billing country of the member at the time of most recent acquisition event,
+PAID_SUBSCRIPTION_(WINBACK_FROM_CANCELLED_TRIAL)_STARTED,device_country,,Device country of the member at the time of most recent acquisition event,
+PAID_SUBSCRIPTION_(WINBACK_FROM_CANCELLED_TRIAL)_STARTED,payment_gateway,,iOSAndroidPaypalStripe,
+PAID_SUBSCRIPTION_(WINBACK_FROM_CANCELLED_TRIAL)_STARTED,subscription_expiry_date,,Date current subscription expires / is due to renew,
+TRIAL_SUBSCRIPTION_CANCELLED,subscription_plan,,"Choose the plan highlighted in pink, else if plans are both pink or neither pink then first plan on the list.monthly if Monthly Planannual if Annual Plan",
+TRIAL_SUBSCRIPTION_CANCELLED,amount,,Cost of the subscription_plan,
+TRIAL_SUBSCRIPTION_CANCELLED,currency,,"Currency of the subscription_plan, e.g. AUD",
+TRIAL_SUBSCRIPTION_CANCELLED,acquisition_date,,Date of most recent acquisition event,
+TRIAL_SUBSCRIPTION_CANCELLED,acquisition_number,,New member = 1Winback >1,
+TRIAL_SUBSCRIPTION_CANCELLED,billing_country,,Billing country of the member at the time of most recent acquisition event,
+TRIAL_SUBSCRIPTION_CANCELLED,device_country,,Device country of the member at the time of most recent acquisition event,
+TRIAL_SUBSCRIPTION_CANCELLED,payment_gateway,,iOSAndroidPaypalStripe,
+TRIAL_SUBSCRIPTION_CANCELLED,subscription_expiry_date,,Date current subscription expires / is due to renew,
+COUPON_SUBSCRIPTION_CANCELLED,subscription_plan,,"Choose the plan highlighted in pink, else if plans are both pink or neither pink then first plan on the list.monthly if Monthly Planannual if Annual Plan",
+COUPON_SUBSCRIPTION_CANCELLED,amount,,Cost of the subscription_plan,
+COUPON_SUBSCRIPTION_CANCELLED,currency,,"Currency of the subscription_plan, e.g. AUD",
+COUPON_SUBSCRIPTION_CANCELLED,acquisition_date,,Date of most recent acquisition event,
+COUPON_SUBSCRIPTION_CANCELLED,acquisition_number,,New member = 1Winback >1,
+COUPON_SUBSCRIPTION_CANCELLED,billing_country,,Billing country of the member at the time of most recent acquisition event,
+COUPON_SUBSCRIPTION_CANCELLED,device_country,,Device country of the member at the time of most recent acquisition event,
+COUPON_SUBSCRIPTION_CANCELLED,payment_gateway,,iOSAndroidPaypalStripe,
+COUPON_SUBSCRIPTION_CANCELLED,subscription_expiry_date,,Date current subscription expires / is due to renew,
+PAID_SUBSCRIPTION_CANCELLED,subscription_plan,,"Choose the plan highlighted in pink, else if plans are both pink or neither pink then first plan on the list.monthly if Monthly Planannual if Annual Plan",
+PAID_SUBSCRIPTION_CANCELLED,amount,,Cost of the subscription_plan,
+PAID_SUBSCRIPTION_CANCELLED,currency,,"Currency of the subscription_plan, e.g. AUD",
+PAID_SUBSCRIPTION_CANCELLED,acquisition_date,,Date of most recent acquisition event,
+PAID_SUBSCRIPTION_CANCELLED,acquisition_number,,New member = 1Winback >1,
+PAID_SUBSCRIPTION_CANCELLED,billing_country,,Billing country of the member at the time of most recent acquisition event,
+PAID_SUBSCRIPTION_CANCELLED,device_country,,Device country of the member at the time of most recent acquisition event,
+PAID_SUBSCRIPTION_CANCELLED,payment_gateway,,iOSAndroidPaypalStripe,
+PAID_SUBSCRIPTION_CANCELLED,subscription_expiry_date,,Date current subscription expires / is due to renew,
+TRIAL_SUBSCRIPTION_CHURNED,subscription_plan,,"Choose the plan highlighted in pink, else if plans are both pink or neither pink then first plan on the list.monthly if Monthly Planannual if Annual Plan",
+TRIAL_SUBSCRIPTION_CHURNED,amount,,Cost of the subscription_plan,
+TRIAL_SUBSCRIPTION_CHURNED,currency,,"Currency of the subscription_plan, e.g. AUD",
+TRIAL_SUBSCRIPTION_CHURNED,acquisition_date,,Date of most recent acquisition event,
+TRIAL_SUBSCRIPTION_CHURNED,acquisition_number,,New member = 1Winback >1,
+TRIAL_SUBSCRIPTION_CHURNED,billing_country,,Billing country of the member at the time of most recent acquisition event,
+TRIAL_SUBSCRIPTION_CHURNED,device_country,,Device country of the member at the time of most recent acquisition event,
+TRIAL_SUBSCRIPTION_CHURNED,payment_gateway,,iOSAndroidPaypalStripe,
+TRIAL_SUBSCRIPTION_CHURNED,subscription_expiry_date,,Date current subscription expires / is due to renew,
+COUPON_SUBSCRIPTION_CHURNED,subscription_plan,,"Choose the plan highlighted in pink, else if plans are both pink or neither pink then first plan on the list.monthly if Monthly Planannual if Annual Plan",
+COUPON_SUBSCRIPTION_CHURNED,amount,,Cost of the subscription_plan,
+COUPON_SUBSCRIPTION_CHURNED,currency,,"Currency of the subscription_plan, e.g. AUD",
+COUPON_SUBSCRIPTION_CHURNED,acquisition_date,,Date of most recent acquisition event,
+COUPON_SUBSCRIPTION_CHURNED,acquisition_number,,New member = 1Winback >1,
+COUPON_SUBSCRIPTION_CHURNED,billing_country,,Billing country of the member at the time of most recent acquisition event,
+COUPON_SUBSCRIPTION_CHURNED,device_country,,Device country of the member at the time of most recent acquisition event,
+COUPON_SUBSCRIPTION_CHURNED,payment_gateway,,iOSAndroidPaypalStripe,
+COUPON_SUBSCRIPTION_CHURNED,subscription_expiry_date,,Date current subscription expires / is due to renew,
+PAID_SUBSCRIPTION_CHURNED,subscription_plan,,"Choose the plan highlighted in pink, else if plans are both pink or neither pink then first plan on the list.monthly if Monthly Planannual if Annual Plan",
+PAID_SUBSCRIPTION_CHURNED,amount,,Cost of the subscription_plan,
+PAID_SUBSCRIPTION_CHURNED,currency,,"Currency of the subscription_plan, e.g. AUD",
+PAID_SUBSCRIPTION_CHURNED,acquisition_date,,Date of most recent acquisition event,
+PAID_SUBSCRIPTION_CHURNED,acquisition_number,,New member = 1Winback >1,
+PAID_SUBSCRIPTION_CHURNED,billing_country,,Billing country of the member at the time of most recent acquisition event,
+PAID_SUBSCRIPTION_CHURNED,device_country,,Device country of the member at the time of most recent acquisition event,
+PAID_SUBSCRIPTION_CHURNED,payment_gateway,,iOSAndroidPaypalStripe,
+PAID_SUBSCRIPTION_CHURNED,subscription_expiry_date,,Date current subscription expires / is due to renew,
+PAID_SUBSCRIPTION_RENEWED,subscription_plan,,"Choose the plan highlighted in pink, else if plans are both pink or neither pink then first plan on the list.monthly if Monthly Planannual if Annual Plan",
+PAID_SUBSCRIPTION_RENEWED,amount,,Cost of the subscription_plan,
+PAID_SUBSCRIPTION_RENEWED,currency,,"Currency of the subscription_plan, e.g. AUD",
+PAID_SUBSCRIPTION_RENEWED,acquisition_date,,Date of most recent acquisition event,
+PAID_SUBSCRIPTION_RENEWED,acquisition_number,,New member = 1Winback >1,
+PAID_SUBSCRIPTION_RENEWED,billing_country,,Billing country of the member at the time of most recent acquisition event,
+PAID_SUBSCRIPTION_RENEWED,device_country,,Device country of the member at the time of most recent acquisition event,
+PAID_SUBSCRIPTION_RENEWED,payment_gateway,,iOSAndroidPaypalStripe,
+PAID_SUBSCRIPTION_RENEWED,subscription_expiry_date,,Date current subscription expires / is due to renew,
+ACTIVITY_BASED_TRIAL_STARTED_OPTIONALYELLOW,subscription_plan,,"Choose the plan highlighted in pink, else if plans are both pink or neither pink then first plan on the list.monthly if Monthly Planannual if Annual Plan",
+ACTIVITY_BASED_TRIAL_STARTED_OPTIONALYELLOW,amount,,Cost of the subscription_plan,
+ACTIVITY_BASED_TRIAL_STARTED_OPTIONALYELLOW,currency,,"Currency of the subscription_plan, e.g. AUD",
+ACTIVITY_BASED_TRIAL_STARTED_OPTIONALYELLOW,acquisition_date,,Date of most recent acquisition event,
+ACTIVITY_BASED_TRIAL_STARTED_OPTIONALYELLOW,acquisition_number,,New member = 1Winback >1,
+ACTIVITY_BASED_TRIAL_STARTED_OPTIONALYELLOW,billing_country,,Billing country of the member at the time of most recent acquisition event,
+ACTIVITY_BASED_TRIAL_STARTED_OPTIONALYELLOW,device_country,,Device country of the member at the time of most recent acquisition event,
+ACTIVITY_BASED_TRIAL_STARTED_OPTIONALYELLOW,payment_gateway,,iOSAndroidPaypalStripe,
+ACTIVITY_BASED_TRIAL_STARTED_OPTIONALYELLOW,subscription_expiry_date,,Date current subscription expires / is due to renew,
+ACTIVITY_BASED_TRIAL_EXPIRED_OPTIONALYELLOW,subscription_plan,,"Choose the plan highlighted in pink, else if plans are both pink or neither pink then first plan on the list.monthly if Monthly Planannual if Annual Plan",
+ACTIVITY_BASED_TRIAL_EXPIRED_OPTIONALYELLOW,amount,,Cost of the subscription_plan,
+ACTIVITY_BASED_TRIAL_EXPIRED_OPTIONALYELLOW,currency,,"Currency of the subscription_plan, e.g. AUD",
+ACTIVITY_BASED_TRIAL_EXPIRED_OPTIONALYELLOW,acquisition_date,,Date of most recent acquisition event,
+ACTIVITY_BASED_TRIAL_EXPIRED_OPTIONALYELLOW,acquisition_number,,New member = 1Winback >1,
+ACTIVITY_BASED_TRIAL_EXPIRED_OPTIONALYELLOW,billing_country,,Billing country of the member at the time of most recent acquisition event,
+ACTIVITY_BASED_TRIAL_EXPIRED_OPTIONALYELLOW,device_country,,Device country of the member at the time of most recent acquisition event,
+ACTIVITY_BASED_TRIAL_EXPIRED_OPTIONALYELLOW,payment_gateway,,iOSAndroidPaypalStripe,
+ACTIVITY_BASED_TRIAL_EXPIRED_OPTIONALYELLOW,subscription_expiry_date,,Date current subscription expires / is due to renew,
+CUSTOMISE_GOALS_TAPPED,customise_goal_tapped,,Track the customise goals button usages,
+SAVED_CUSTOM_GOALS,SWTAppEventParameterSource:,,,
+SOURCE_CUSTOMISEGOALSSHEET,Capture clicks on Custom Workout Tray,,,
+SEGMENT_&_SNOWFLAKE_-_HOW_ARE_WE_CAPTURING_SNOWFLAKE_REQUESTS?,,,,
+SWTAPPEVENTACTIVITYINNERTABS,SWTAppEventParameterTabprogress,,,
+SWTAPPEVENTPARAMETERTABHISTORY,,,,
+NOTE:BLUETHE_EVENT_WILL_BE_FIRED_WHEN_THE_USER_LANDS_ON_THE_TAB__AS_WELL._THE_PARAMETER_VALUE_WILL_BE_THE_INNER_TAB_STATE_AT_THE_TIME.,,,,
+SAW_MOTIVATIONAL_MESSAGE,SWTAppEventParameterMessage,,"Capture which message is show to user at the time they viewed the Actvity tab i.e.  Kayla, you just broke your streak record! Incredible 👊",
+PROGRESS_PHOTO_TAPPED,,,,
+LOG_WORKOUT_(TYPE_OF_WORKOUT_SELECTED),,,,
+CUSTOMISE_GOALS_TAPPED,,,To track the customise goals button usages. Fired when tapped.,
+SAVED_CUSTOM_GOALS,,,To track the custom user goal adjustments. Fired when goal is updated.The parameters are as follows:SWTAppEventParameterSourceScheduleMyWeekSheetCustomiseGoalsSheet,
+SWTAPPEVENTACTIVITYINNERTABS,,,To track the top tabs in the Activity tab. Fired when tapped. This is an existing event.The parameters are as follows:SWTAppEventParameterTabprogressachievementshistoryNote:Blue The event will be fired when the user lands on the tab  as well. The parameter value will be the inner tab state at the time.,
+SAW_MOTIVATIONAL_MESSAGE,,,"To track the motivational messages user see on the Activity tab. Fired when user sees the Activity tab for each loaded session.The parameters are as follows:SWTAppEventParameterMessageKayla, you just broke your streak record! Incredible 👊",

@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Monty — Pipeline Timeline</title>
+<style>
+:root{
+  --bg:#0f1116;--panel:#181b22;--panel-2:#20242d;--line:#2a2f3a;--line-2:#353a47;
+  --text:#e6e8ee;--muted:#8089a0;--dim:#5a6378;
+  --green:#4ade80;--green-d:#16a34a;--green-l:#86efac;--green-ld:#4ade80;
+  --amber:#fbbf24;--amber-d:#b45309;
+  --red:#f43f5e;--red-d:#be123c;--blue:#60a5fa;--blue-d:#1d4ed8;--purple:#a78bfa;
+}
+*{box-sizing:border-box}html,body{margin:0;padding:0}
+/* page backdrop tells you WHICH ENV you're on at a glance: green = prod,
+   red = dev. Panels/cards keep their own dark surface on top. */
+body{background:#00341f;color:var(--text);
+  font-family:'Inter','SF Pro Display',-apple-system,BlinkMacSystemFont,sans-serif;
+  font-size:13px;min-height:100vh}
+body.env-dev{background:#34001f}
+.page{padding:22px 28px 60px;max-width:1480px;margin:0 auto;position:relative}
+/* faint NOW line that runs the full height of the page, aligned to the bright
+   marker inside the timeline. Positioned in JS (the name column is resizable). */
+.now-global{position:absolute;top:0;bottom:0;width:1px;z-index:1;pointer-events:none;
+  display:none;background:linear-gradient(180deg,rgba(34,211,238,0) 0,rgba(34,211,238,.22) 4%,rgba(34,211,238,.22) 96%,rgba(34,211,238,0) 100%)}
+.head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px 18px;margin-bottom:20px}
+.head .title{display:flex;align-items:baseline;gap:14px}
+.head .title h1{margin:0;font-size:22px;font-weight:700;letter-spacing:-.01em;white-space:nowrap}
+.head .title .sub{color:var(--muted);font-size:12px;white-space:nowrap}
+.head .controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+/* the colour key sits on its own line under the controls, never squished into them */
+.head .legend{flex-basis:100%;justify-content:flex-end;flex-wrap:wrap;row-gap:6px;
+  padding-top:12px;border-top:1px solid var(--line);margin-top:2px}
+.legend{display:flex;gap:14px;align-items:center;font-size:11px;color:var(--muted)}
+.legend .swatch{width:10px;height:10px;border-radius:2px;display:inline-block;margin-right:5px;vertical-align:middle}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:18px}
+.panel-head{padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between}
+.panel-head h3{margin:0;font-size:14px;font-weight:600}
+.panel-head .sub{color:var(--muted);font-size:12px;margin-top:2px}
+.timeline{display:grid;grid-template-columns:var(--namew,240px) 1fr;position:relative}
+.axis-row{display:contents}
+.axis-spacer{border-bottom:1px solid var(--line);border-right:1px solid var(--line);background:var(--panel);
+  padding:12px 16px 6px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
+.axis{display:grid;border-bottom:1px solid var(--line);background:var(--panel);position:relative}
+.axis .tick{border-right:1px dashed var(--line);padding:12px 0 6px;text-align:center;font-size:10px;
+  color:var(--muted);font-variant-numeric:tabular-nums;
+  /* a 7d window gives ~7px-wide cells: let the sparse labels spill over */
+  white-space:nowrap;overflow:visible}
+.axis .tick:last-child{border-right:none}
+.winpick{display:inline-flex;background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.winpick a{padding:5px 9px;font-size:11px;color:var(--muted);cursor:pointer;
+  border-right:1px solid var(--line);text-decoration:none;font-variant-numeric:tabular-nums}
+.winpick a:last-child{border-right:none}
+.winpick a:hover{color:var(--text)}
+.winpick a.on{background:var(--panel-2);color:#22d3ee;font-weight:600}
+/* cross-page nav button */
+.navbtn{display:inline-flex;align-items:center;gap:6px;background:var(--panel);
+  border:1px solid var(--line);border-radius:6px;padding:5px 11px;font-size:11px;
+  font-weight:600;color:var(--muted);text-decoration:none;letter-spacing:.02em}
+.navbtn:hover{color:#22d3ee;border-color:rgba(34,211,238,.45);background:var(--panel-2)}
+.navbtn svg{flex:none}
+.pipe-row{display:contents}
+/* pipeline family grouping */
+.fam-row{display:contents;cursor:pointer}
+.fam-name{grid-column:1;position:relative;border-bottom:1px solid var(--line);border-right:1px solid var(--line);
+  background:var(--panel-2);padding:8px 84px 8px 14px;display:flex;align-items:center;gap:7px;user-select:none}
+.fam-bar{grid-column:2;border-bottom:1px solid var(--line);background:var(--panel-2);
+  position:relative;height:34px;
+  background-image:repeating-linear-gradient(to right,transparent 0,transparent calc(100%/var(--cols,24) - 1px),var(--line) calc(100%/var(--cols,24) - 1px),var(--line) calc(100%/var(--cols,24)))}
+.fam-row:hover .fam-name,.fam-row:hover .fam-bar{background-color:#252a35}
+/* merged run bars on the family row */
+.frun{position:absolute;top:9px;height:16px;border-radius:3px;border:1px solid rgba(255,255,255,.08)}
+.frun.success{background:linear-gradient(180deg,#22c55e 0%,#15803d 100%)}
+.frun.noload{background:linear-gradient(180deg,var(--green-l) 0%,var(--green-ld) 100%)}
+.frun.warn{background:linear-gradient(180deg,var(--amber) 0%,var(--amber-d) 100%)}
+.frun.fail{background:linear-gradient(180deg,var(--red) 0%,var(--red-d) 100%)}
+.frun.info{background:linear-gradient(180deg,var(--blue) 0%,var(--blue-d) 100%);opacity:.8}
+.frun.mixed{border-color:rgba(255,255,255,.22)}
+.fmarker{position:absolute;width:6px;height:6px;border-radius:50%;top:3px;background:var(--red);
+  box-shadow:0 0 6px rgba(244,63,94,.6);transform:translateX(-50%)}
+.fmarker.warn{background:var(--amber);box-shadow:0 0 6px rgba(251,191,36,.5)}
+/* expanded: the child lanes show the detail, so fade the summary */
+.fam-row.open .frun,.fam-row.open .fmarker{opacity:.28}
+.fam-row.open .frun.info{opacity:.2}
+.fam-name .chev{color:var(--muted);font-size:8px;width:10px;margin-left:auto;transition:transform .12s}
+.fam-row.open .chev{transform:rotate(90deg);color:#22d3ee}
+.fam-name .fname{font-weight:700;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fmeta{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap}
+.pipe-name.nested{padding-left:34px}
+.pipe-row.collapsed>*{display:none}
+/* level-1 group (collects several families) */
+.grp-row{display:contents;cursor:pointer}
+.grp-name{grid-column:1;position:relative;border-bottom:1px solid var(--line);border-right:1px solid var(--line);
+  background:var(--panel);padding:10px 84px 10px 14px;display:flex;align-items:center;gap:8px;user-select:none;
+  box-shadow:inset 3px 0 0 var(--accent,#22d3ee)}
+.grp-bar{grid-column:2;border-bottom:1px solid var(--line);background:var(--panel);position:relative;height:36px;
+  background-image:repeating-linear-gradient(to right,transparent 0,transparent calc(100%/var(--cols,24) - 1px),var(--line) calc(100%/var(--cols,24) - 1px),var(--line) calc(100%/var(--cols,24)))}
+.grp-row:hover .grp-name,.grp-row:hover .grp-bar{background-color:#22262f}
+.grp-name .chev{color:var(--muted);font-size:9px;width:11px;margin-left:auto;transition:transform .12s}
+.grp-row.open .chev{transform:rotate(90deg);color:#22d3ee}
+.grp-name .gname{font-weight:800;font-size:12.5px;letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.grp-row.open .frun,.grp-row.open .fmarker{opacity:.3}
+.grp-row.open .frun.info{opacity:.22}
+/* a family header sitting under a group: indent + step the shade */
+.fam-name.under-grp{padding-left:34px}
+/* hidden because the parent GROUP is collapsed */
+.fam-row.gcollapsed>*{display:none}
+.pipe-row.gcollapsed>*{display:none}
+.expandall{color:var(--muted);cursor:pointer;font-size:10px;font-weight:600;text-transform:uppercase;
+  letter-spacing:.05em;text-decoration:none;margin-left:4px}
+.expandall:hover{color:#22d3ee}
+/* a data source dropped out — partial data must never look complete */
+.srcwarn{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;
+  background:rgba(244,63,94,.09);border:1px solid rgba(244,63,94,.45);border-radius:10px;
+  padding:11px 16px;font-size:12px;color:#fda4af}
+.srcwarn>b:first-child{background:var(--red);color:#0f1116;font-size:9px;font-weight:800;
+  letter-spacing:.09em;padding:2px 7px;border-radius:99px}
+.srcwarn span{color:var(--text)}
+.srcwarn span b{color:var(--red)}
+.srcwarn code{margin-left:auto;font-family:ui-monospace,Menlo,monospace;font-size:10px;
+  color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:2px 7px}
+/* ghost lane: ran within the retention horizon, but not in this window */
+.pipe-row.ghost .pipe-name{opacity:.6}
+.pipe-row.ghost .pipe-track{background:repeating-linear-gradient(to right,transparent 0,transparent calc(100%/var(--cols,24) - 1px),var(--line) calc(100%/var(--cols,24) - 1px),var(--line) calc(100%/var(--cols,24)))}
+.ghost-note{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:10px;
+  color:var(--dim);letter-spacing:.04em;pointer-events:none;white-space:nowrap}
+.pipe-name{position:relative;border-bottom:1px solid var(--line);border-right:1px solid var(--line);padding:10px 84px 10px 14px;
+  background:var(--panel);display:flex;align-items:center;gap:10px}
+/* ONE icon size everywhere — group, family, and lane rows all match */
+.pipe-name .ico,.fam-name .ico,.grp-name .ico{width:24px;height:24px;border-radius:6px;display:grid;place-items:center;font-size:11px;font-weight:700;color:var(--bg);flex:none}
+.pipe-name .ico+div{flex:1;min-width:0}
+.pipe-name .name{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.pipe-name .meta{color:var(--muted);font-size:11px}
+.ico.aws{background:var(--amber)}.ico.dbt{background:var(--blue)}.ico.sf{background:var(--purple)}.ico.task{background:var(--green)}
+.pipe-track{position:relative;border-bottom:1px solid var(--line);height:44px;
+  background:repeating-linear-gradient(to right,transparent 0,transparent calc(100%/var(--cols,24) - 1px),var(--line) calc(100%/var(--cols,24) - 1px),var(--line) calc(100%/var(--cols,24)))}
+.run{position:absolute;top:11px;height:22px;border-radius:4px;border:1px solid rgba(255,255,255,.08)}
+.run.success{background:linear-gradient(180deg,#22c55e 0%,#15803d 100%)}
+.run.noload{background:linear-gradient(180deg,var(--green-l) 0%,var(--green-ld) 100%)}
+.run.warn{background:linear-gradient(180deg,var(--amber) 0%,var(--amber-d) 100%)}
+.run.fail{background:linear-gradient(180deg,var(--red) 0%,var(--red-d) 100%)}
+.run.info{background:linear-gradient(180deg,var(--blue) 0%,var(--blue-d) 100%);opacity:.8}
+.run.stale{background:repeating-linear-gradient(45deg,#444a5b 0,#444a5b 4px,#2c303d 4px,#2c303d 8px);border:1px dashed var(--dim)}
+.marker{position:absolute;width:8px;height:8px;border-radius:50%;top:4px;background:var(--red);
+  box-shadow:0 0 8px rgba(244,63,94,.6);transform:translateX(-50%)}
+.marker.warn{background:var(--amber);box-shadow:0 0 8px rgba(251,191,36,.5)}
+/* predicted next run: dashed line when the schedule is tight, a shaded ±1σ
+   band when it's irregular (never a fake-precise ETA). Red once overdue. */
+.pred{position:absolute;top:6px;bottom:6px;width:0;border-left:2px dashed #22d3ee;opacity:.75;
+  transform:translateX(-1px);pointer-events:auto;cursor:help}
+.pred:hover{opacity:1}
+.pred.overdue{border-left-color:var(--red);opacity:.9}
+.pred-lbl{position:absolute;top:2px;transform:translateX(-50%);font-size:8.5px;color:#22d3ee;
+  font-variant-numeric:tabular-nums;pointer-events:none;letter-spacing:.02em;opacity:.85}
+.pred-lbl.overdue{color:var(--red)}
+.predband{position:absolute;top:11px;height:22px;border-radius:4px;cursor:help;
+  background:repeating-linear-gradient(45deg,rgba(34,211,238,.16) 0,rgba(34,211,238,.16) 3px,transparent 3px,transparent 6px);
+  border:1px dashed rgba(34,211,238,.45)}
+.predband:hover{background:rgba(34,211,238,.14)}
+.predband.overdue{border-color:rgba(244,63,94,.5);
+  background:repeating-linear-gradient(45deg,rgba(244,63,94,.16) 0,rgba(244,63,94,.16) 3px,transparent 3px,transparent 6px)}
+.now-line{position:absolute;top:0;bottom:0;width:2px;
+  background:linear-gradient(180deg,transparent,#22d3ee 30%,#22d3ee 70%,transparent);z-index:5}
+.now-line::before{content:'NOW';position:absolute;top:-16px;left:-16px;font-size:9px;letter-spacing:.1em;color:#22d3ee;font-weight:700}
+.bottom{display:grid;grid-template-columns:var(--namew,240px) 1fr}
+/* draggable divider to widen/narrow the pipeline-name column */
+.col-resize{position:absolute;top:0;bottom:0;left:var(--namew,240px);width:9px;margin-left:-4px;
+  cursor:col-resize;z-index:8;touch-action:none}
+.col-resize::after{content:'';position:absolute;left:4px;top:0;bottom:0;width:1px;background:transparent;transition:background .12s}
+.col-resize:hover::after,.col-resize.drag::after{background:#22d3ee;box-shadow:0 0 6px rgba(34,211,238,.6)}
+body.col-resizing{cursor:col-resize;user-select:none}
+.bottom .label{border-right:1px solid var(--line);padding:14px 16px;background:var(--panel);font-size:11px;
+  color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:600;display:flex;align-items:center}
+.bars-row{display:grid;align-items:end;padding:6px 0;position:relative;height:88px;background:var(--panel)}
+.bars-row .bar{margin:0 2px;display:flex;flex-direction:column-reverse;border-radius:2px 2px 0 0;overflow:hidden;height:80%;align-self:end}
+.bars-row .bar>span{width:100%;display:block}
+.bars-row .bar>.info{background:var(--blue);opacity:.5}
+.bars-row .bar>.warn{background:var(--amber)}
+.bars-row .bar>.fail{background:var(--red)}
+/* warehouse credits chart (under the alerts strip) */
+.credits .cwrap{position:relative;height:96px;background:var(--panel)}
+svg.cchart{width:100%;height:96px;display:block}
+.cl{fill:none;stroke-width:1.6px;vector-effect:non-scaling-stroke;stroke-linejoin:round;stroke-linecap:round}
+.cl.total{stroke:#22d3ee}
+.cl.compute{stroke:#a78bfa;opacity:.92}
+.cl.cloud{stroke:#fbbf24;opacity:.92}
+.ref{stroke-width:1px;vector-effect:non-scaling-stroke;stroke-dasharray:5 4;opacity:.5}
+.ref.used{stroke:#22d3ee}.ref.compute{stroke:#a78bfa}.ref.cloud{stroke:#fbbf24}
+.credits .now-line{z-index:3}
+.clegend{position:absolute;top:7px;left:12px;display:flex;gap:14px;font-size:10px;color:var(--muted);align-items:center}
+.clegend i{display:inline-block;width:10px;height:3px;border-radius:2px;margin-right:5px;vertical-align:middle}
+.clegend b{color:var(--text);font-variant-numeric:tabular-nums;font-weight:600;margin-left:3px}
+.clegend em{color:var(--dim);font-style:normal;margin-left:6px;font-variant-numeric:tabular-nums}
+.cmax{position:absolute;top:7px;right:12px;font-size:10px;color:var(--dim);font-variant-numeric:tabular-nums}
+.cempty{display:flex;align-items:center;justify-content:center;height:96px;color:var(--muted);font-size:11px;padding:0 12px;text-align:center}
+.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px 20px}
+.card .label{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em;font-weight:600;margin-bottom:8px}
+.card .value{font-size:24px;font-weight:700;letter-spacing:-.01em}
+.card .row{display:flex;justify-content:space-between;font-size:12px;padding:6px 0;border-bottom:1px dashed var(--line)}
+.card .row:last-child{border-bottom:none}
+.card .row .k{color:var(--muted)}
+.card .row .v{font-variant-numeric:tabular-nums;font-weight:600}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+.dot.crit{background:var(--red)}.dot.warn{background:var(--amber)}.dot.ok{background:var(--green)}
+.dot.info{background:var(--blue)}.dot.stale{background:var(--dim)}.dot.noload{background:var(--green-l)}
+/* pinned to a fixed offset from the right edge of the name column, so every
+   row's pill (header OR lane) lines up in one straight vertical column */
+.status-pill{position:absolute;right:14px;top:50%;transform:translateY(-50%);
+  font-size:10px;padding:1px 8px;border-radius:999px;font-weight:600;
+  min-width:64px;text-align:center;box-sizing:border-box}
+.status-pill.ok{background:rgba(34,197,94,.15);color:var(--green)}
+.status-pill.noload{background:rgba(134,239,172,.15);color:var(--green-l)}
+.status-pill.info{background:rgba(96,165,250,.15);color:var(--blue)}
+.status-pill.warn{background:rgba(251,191,36,.15);color:var(--amber)}
+.status-pill.crit{background:rgba(244,63,94,.15);color:var(--red)}
+.status-pill.stale{background:rgba(90,99,120,.2);color:var(--muted)}
+.empty{padding:40px;text-align:center;color:var(--muted)}
+.daypick{display:inline-flex;align-items:center;gap:6px;background:var(--panel);
+  border:1px solid var(--line);border-radius:8px;padding:4px 6px}
+.daypick .nav{width:22px;height:22px;display:grid;place-items:center;border-radius:5px;
+  color:var(--muted);text-decoration:none;font-size:16px;line-height:1}
+.daypick .nav:hover{background:var(--panel-2);color:var(--text)}
+.daypick .nav.disabled{opacity:.25;pointer-events:none}
+.daypick input[type=date]{background:var(--panel-2);border:1px solid var(--line);
+  color:var(--text);border-radius:5px;padding:3px 6px;font-size:12px;
+  font-family:inherit;color-scheme:dark}
+.daypick .live{margin-left:4px;font-size:10px;font-weight:700;letter-spacing:.04em;
+  text-decoration:none;color:var(--muted);padding:3px 8px;border-radius:5px;border:1px solid var(--line)}
+.daypick .live.on{color:#22d3ee;border-color:rgba(34,211,238,.4);background:rgba(34,211,238,.08)}
+.daypick .live:hover{color:#22d3ee}
+.rangepick.on{border-color:rgba(167,139,250,.5);background:rgba(167,139,250,.08)}
+.rangepick.on #rApply{color:var(--purple);border-color:rgba(167,139,250,.5)}
+.tztoggle{display:inline-flex;background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.tztoggle a{padding:5px 9px;font-size:11px;color:var(--muted);cursor:pointer;border-right:1px solid var(--line);text-decoration:none}
+.tztoggle a:last-child{border-right:none}
+.tztoggle a:hover{color:var(--text)}
+.tztoggle a.on{background:var(--panel-2);color:#22d3ee}
+.envtoggle a{font-weight:700;letter-spacing:.04em}
+.envtoggle a[data-env="dev"].on{color:#fbbf24}
+.runx{cursor:pointer}
+.runx:hover{outline:2px solid #22d3ee;outline-offset:1px;z-index:6}
+/* detail drawer */
+.drawer-scrim{position:fixed;inset:0;background:rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:opacity .18s;z-index:40}
+.drawer-scrim.open{opacity:1;pointer-events:auto}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:520px;max-width:92vw;background:var(--panel);
+  border-left:1px solid var(--line-2);transform:translateX(100%);transition:transform .2s ease;
+  z-index:41;display:flex;flex-direction:column}
+.drawer.open{transform:translateX(0)}
+.drawer .dh{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.drawer .dh h3{margin:0;font-size:15px;font-weight:700;word-break:break-all}
+.drawer .dh .meta{color:var(--muted);font-size:12px;margin-top:4px;font-variant-numeric:tabular-nums}
+.drawer .x{background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1;padding:0 2px}
+.drawer .x:hover{color:var(--text)}
+.drawer .body{padding:14px 20px;overflow:auto}
+.drawer .chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.chip{font-size:11px;padding:3px 9px;border-radius:999px;font-weight:600;font-variant-numeric:tabular-nums}
+.chip.crit{background:rgba(244,63,94,.15);color:var(--red)}
+.chip.err{background:rgba(244,63,94,.12);color:#fb7185}
+.chip.warn{background:rgba(251,191,36,.15);color:var(--amber)}
+.chip.noload{background:rgba(134,239,172,.15);color:var(--green-l)}
+.chip.running{background:rgba(96,165,250,.15);color:var(--blue)}
+.chip.info{background:rgba(96,165,250,.15);color:var(--blue)}
+.chip.alert{background:rgba(34,211,238,.15);color:#22d3ee}
+.ev{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:8px;background:var(--panel-2)}
+.ev .top{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
+.ev .m{font-size:12px;font-weight:600;word-break:break-all}
+.ev .t{font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums;white-space:nowrap}
+.ev .sub{font-size:11px;color:var(--muted);margin-top:3px}
+.ev .val{color:var(--text);font-variant-numeric:tabular-nums}
+.ev .pl{margin-top:6px;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--muted);
+  background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;word-break:break-all;line-height:1.5}
+.ev .sevdot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px}
+.ev.critical .sevdot,.ev.error .sevdot{background:var(--red)}
+.ev.warning .sevdot{background:var(--amber)}
+.ev.noload .sevdot{background:var(--green-l)}
+.ev.running .sevdot{background:var(--blue)}
+.ev.info .sevdot{background:var(--blue)}
+/* drawer: events grouped by metric subject */
+.evgrp{margin-bottom:8px;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--panel-2)}
+.evgrp>summary{cursor:pointer;padding:8px 11px;font-size:11.5px;font-weight:600;display:flex;
+  align-items:center;gap:7px;list-style:none;word-break:break-all}
+.evgrp>summary::-webkit-details-marker{display:none}
+.evgrp>summary::before{content:'▶';font-size:7px;color:var(--muted);transition:transform .12s;flex:none}
+.evgrp[open]>summary::before{transform:rotate(90deg)}
+.evgrp>summary:hover{background:var(--line)}
+.evgrp>summary .n{margin-left:auto;color:var(--muted);font-size:10px;font-variant-numeric:tabular-nums;
+  background:var(--bg);border:1px solid var(--line);border-radius:99px;padding:0 7px;flex:none}
+.evgrp .ev{margin:0 8px 8px;background:var(--bg)}
+</style>
+</head>
+<body class="env-{{ env }}">
+<div class="page">
+  {% if now_left_pct is not none %}<div class="now-global" id="nowGlobal"></div>{% endif %}
+  <header class="head">
+    <div class="title">
+      <h1>Pipeline Timeline</h1>
+      <span class="sub">{% if is_live %}{% if centered %}last {{ history_hours }}h · +{{ future_hours }}h ahead · live{% else %}last {{ window_hours }}h · live{% endif %}{% else %}{{ day }} · archive{% endif %} · {{ env }}</span>
+    </div>
+    <div class="controls">
+      {# cross-nav: carry env + tz across so you don't lose context #}
+      <a class="navbtn" href="/anomalies?env={{ env }}&tz={{ tzname }}" title="Anomaly detection">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="2 14 6 14 9 5 14 19 17 11 22 11"/></svg>
+        Anomalies
+      </a>
+      <div class="tztoggle envtoggle">
+        <a class="{{ 'on' if env == 'prod' else '' }}" data-env="prod">PROD</a>
+        <a class="{{ 'on' if env == 'dev' else '' }}" data-env="dev">DEV</a>
+      </div>
+      <div class="winpick" title="Timeline span">
+        {% for h in window_choices %}
+        <a class="{{ 'on' if window_hours == h else '' }}" data-hours="{{ h }}">{{ h if h < 48 else (h // 24)|string + 'd' }}{{ 'h' if h < 48 else '' }}</a>
+        {% endfor %}
+      </div>
+      <div class="tztoggle">
+        <a class="{{ 'on' if tzname == 'utc' else '' }}" data-tz="utc">UTC</a>
+        <a class="{{ 'on' if tzname == 'sydney' else '' }}" data-tz="sydney">Sydney</a>
+        <a class="{{ 'on' if tzname == 'adelaide' else '' }}" data-tz="adelaide">Adelaide</a>
+      </div>
+      <div class="daypick">
+        <a class="nav" id="prevBtn" href="#" title="Previous day">‹</a>
+        <input type="date" id="dayInput" value="{{ day }}">
+        <a class="nav" id="nextBtn" href="#" title="Next day">›</a>
+        <a class="live {{ 'on' if is_live else '' }}" id="liveBtn" href="#" title="Jump to now">● LIVE</a>
+      </div>
+      <div class="daypick rangepick {{ 'on' if is_range else '' }}">
+        <span style="font-size:10px;color:var(--muted);padding:0 2px">RANGE</span>
+        <input type="date" id="rFrom" value="{{ range_from }}">
+        <span style="color:var(--muted)">→</span>
+        <input type="date" id="rTo" value="{{ range_to }}">
+        <a class="live" id="rApply" href="#" title="Aggregate over range">APPLY</a>
+      </div>
+    </div>
+    <div class="legend">
+      <span><span class="swatch" style="background:#22c55e"></span>Success</span>
+      <span><span class="swatch" style="background:var(--green-l)"></span>No rows</span>
+      <span><span class="swatch" style="background:var(--blue)"></span>Running</span>
+      <span><span class="swatch" style="background:var(--amber)"></span>Warning</span>
+      <span><span class="swatch" style="background:var(--red)"></span>Failure</span>
+      <span><span class="swatch" style="background:repeating-linear-gradient(45deg,#444a5b 0,#444a5b 3px,#2c303d 3px,#2c303d 6px)"></span>Stale</span>
+      <span><span class="swatch" style="background:none;border-left:2px dashed #22d3ee;width:2px;border-radius:0"></span>Next run</span>
+    </div>
+  </header>
+  <script>
+    (function () {
+      var params = new URLSearchParams(window.location.search);
+      function nav(mut) { mut(params); window.location.search = params.toString(); }
+      var today = new Date().toISOString().slice(0, 10);
+
+      // timezone toggle — preserves every other param (exclude env toggle,
+      // which shares the .tztoggle look but carries data-env, not data-tz)
+      document.querySelectorAll('.tztoggle:not(.envtoggle) a').forEach(function (a) {
+        a.addEventListener('click', function () {
+          nav(function (p) { p.set('tz', a.getAttribute('data-tz')); });
+        });
+      });
+
+      // prod/dev environment toggle — preserves every other param
+      document.querySelectorAll('.envtoggle a').forEach(function (a) {
+        a.addEventListener('click', function () {
+          nav(function (p) { p.set('env', a.getAttribute('data-env')); });
+        });
+      });
+
+      // timeline span picker — leaves range mode, keeps day/env/tz
+      document.querySelectorAll('.winpick a').forEach(function (a) {
+        a.addEventListener('click', function () {
+          nav(function (p) {
+            p.delete('from'); p.delete('to');
+            p.set('hours', a.getAttribute('data-hours'));
+          });
+        });
+      });
+
+      // day picker
+      var input = document.getElementById('dayInput');
+      input.max = today;
+      input.addEventListener('change', function () {
+        if (input.value) nav(function (p) { p.delete('from'); p.delete('to'); p.set('day', input.value); });
+      });
+      document.getElementById('prevBtn').addEventListener('click', function (e) {
+        e.preventDefault(); nav(function (p) { p.delete('from'); p.delete('to'); p.set('day', {{ prev_day|tojson }}); });
+      });
+      document.getElementById('liveBtn').addEventListener('click', function (e) {
+        e.preventDefault(); nav(function (p) { p.delete('day'); p.delete('from'); p.delete('to'); });
+      });
+      var nextBtn = document.getElementById('nextBtn');
+      if ({{ next_day|tojson }} > today) { nextBtn.classList.add('disabled'); }
+      else nextBtn.addEventListener('click', function (e) {
+        e.preventDefault(); nav(function (p) { p.delete('from'); p.delete('to'); p.set('day', {{ next_day|tojson }}); });
+      });
+
+      // range apply
+      var rf = document.getElementById('rFrom'), rt = document.getElementById('rTo');
+      rf.max = today; rt.max = today;
+      document.getElementById('rApply').addEventListener('click', function (e) {
+        e.preventDefault();
+        if (rf.value && rt.value) {
+          var a = rf.value, b = rt.value;
+          if (a > b) { var t = a; a = b; b = t; }
+          nav(function (p) { p.delete('day'); p.set('from', a); p.set('to', b); });
+        }
+      });
+    })();
+  </script>
+
+  {% if source_warnings %}
+  {# A source dropped out. `both` mode keeps rendering, but PARTIAL data must
+     never look like healthy data — say so loudly. #}
+  {% for w in source_warnings %}
+  <div class="srcwarn">
+    <b>PARTIAL DATA</b>
+    <span>The <b>{{ w.source }}</b> source is unavailable, so this view is missing {{ w.lost }}.</span>
+    <code>{{ w.error[:160] }}</code>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h3>Pipeline runs</h3>
+        <div class="sub">{{ lanes|length }} active pipelines · {{ lane_groups|length }} families · {{ supergroups|length }} groups ·
+          <a class="expandall" id="famExpand">Expand all</a> <a class="expandall" id="famCollapse">Collapse</a>
+          · {% if mode == 'range' %}aggregated in {{ bucket_label }} buckets over {{ days }}d{% else %}failure markers above the row · vertical line = now{% endif %}</div>
+      </div>
+      <div style="font-size:12px;color:var(--muted)">
+        {% if mode == 'range' %}Range: {{ range_from }} → {{ range_to }}{% elif is_live %}Now: {{ now.strftime('%Y-%m-%d %H:%M') }}{% else %}Viewing: {{ win_start.strftime('%Y-%m-%d') }} · {{ axis[0] }}–{{ axis[-1] }}{% endif %}
+      </div>
+    </div>
+
+    <div class="timeline" style="--cols:{{ axis|length }}">
+      <div class="col-resize" id="colResize" title="Drag to resize the pipeline column · double-click to reset"></div>
+      <div class="axis-row">
+        <div class="axis-spacer">Pipeline · <span style="color:#22d3ee">{{ tz_abbr }}</span></div>
+        <div class="axis" style="grid-template-columns:repeat({{ axis|length }},1fr)">
+          {% for t in axis %}<div class="tick">{{ t }}</div>{% endfor %}
+        </div>
+      </div>
+
+      {#- one family (level 2): its header (unless solo) + its lanes (level 3).
+          `gid` is set when the family lives inside a level-1 group, which adds
+          the group-collapse hook + an extra indent. -#}
+      {% macro fam_block(grp, fid, gid) %}
+      {% if not grp.solo %}
+      <div class="fam-row {{ 'gcollapsed' if gid }}" data-fam="{{ fid }}"{% if gid %} data-in-grp="{{ gid }}"{% endif %}>
+        <div class="fam-name {{ 'under-grp' if gid }}">
+          <div class="ico {{ grp.kind }}" title="{{ grp.kind }}">{{ grp.kind[0]|upper }}</div>
+          <span class="fname" title="{{ grp.family }}">{{ grp.display or grp.family }}</span>
+          <span class="fmeta">{{ grp.n }}</span>
+          {% if grp.n_fail %}<span class="fmeta"><span class="dot crit"></span>{{ grp.n_fail }}</span>{% endif %}
+          {% if grp.n_warn %}<span class="fmeta"><span class="dot warn"></span>{{ grp.n_warn }}</span>{% endif %}
+          {% if grp.stale %}<span class="fmeta"><span class="dot stale"></span>{{ grp.stale }}</span>{% endif %}
+          <span class="chev">▶</span>
+          <span class="status-pill {{ grp.status_cls }}">{{ grp.status_cls|upper }}</span>
+        </div>
+        <!-- merged track: every child pipeline's runs, overlaid. Severities
+             that land in the same slot blend, so a collapsed family still
+             shows when it ran and how it went. -->
+        <div class="fam-bar">
+          {% if mode == 'range' %}
+            {% for b in grp.bars %}
+            <div class="frun {{ b.cls }}{{ ' mixed' if b.mixed }}" style="left:{{ b.left }}%;width:{{ b.width or 1 }}%;{{ b.style or '' }}"
+                 title="{{ b.n }} events · {{ b.sevs|join(' + ') }}{{ ' · alerted' if b.alert }}"></div>
+            {% endfor %}
+          {% else %}
+            {% for r in grp.runs %}
+            <div class="frun {{ r.cls }}{{ ' mixed' if r.mixed }}" style="left:{{ r.left }}%;width:2%;{{ r.style or '' }}"
+                 title="{{ r.n }} events · {{ r.sevs|join(' + ') }}{{ ' · alerted' if r.alert }}"></div>
+            {% if r.alert or r.cls == 'fail' %}<div class="fmarker {{ 'warn' if r.cls == 'warn' else '' }}" style="left:{{ r.left + 1 }}%"></div>{% endif %}
+            {% endfor %}
+          {% endif %}
+          {% if grp.ghost %}<span class="ghost-note">no runs in window</span>{% endif %}
+        </div>
+      </div>
+      {% endif %}
+      {% for lane in grp.lanes %}
+      <div class="pipe-row {{ '' if grp.solo else 'in-fam' }} {{ 'gcollapsed' if gid }} {{ 'ghost' if lane.ghost else '' }}" data-in-fam="{{ '' if grp.solo else fid }}"{% if gid %} data-in-grp="{{ gid }}"{% endif %}>
+        <div class="pipe-name {{ '' if grp.solo else 'nested' }}"{% if gid %} style="padding-left:{{ 54 if not grp.solo else 34 }}px"{% endif %}>
+          <div class="ico {{ lane.kind }}">{{ lane.kind[0]|upper }}</div>
+          <div>
+            <div class="name" title="{{ lane.name }}">{{ lane.name }}</div>
+            <div class="meta">{{ lane.kind }} · {{ lane.cadence }}</div>
+          </div>
+          <span class="status-pill {{ lane.status_cls }}" title="runs {{ lane.cadence }} · flagged stale after {{ lane.stale_after }} of silence{% if lane.since_last_h %} · quiet {{ lane.since_last_h }}h{% endif %}">{{ lane.status_label }}</span>
+        </div>
+        <div class="pipe-track">
+          {% if mode == 'range' %}
+            {% for b in lane.bars %}
+            <div class="run runx {{ b.cls }}" data-run="{{ b.id }}" style="left:{{ b.left }}%;width:{{ b.width }}%;opacity:{{ b.opacity }}" title="{{ b.n }} events — click for detail"></div>
+            {% if b.alert or b.cls == 'fail' %}<div class="marker {{ 'warn' if b.cls == 'warn' else '' }}" style="left:{{ b.left + b.width/2 }}%"></div>{% endif %}
+            {% endfor %}
+          {% else %}
+            {% for r in lane.runs %}
+            <div class="run runx {{ r.cls }}" data-run="{{ r.id }}" style="left:{{ r.left }}%;width:2%" title="{{ r.n }} events — click for detail"></div>
+            {% if r.alert or r.cls == 'fail' %}
+              <div class="marker {{ 'warn' if r.cls == 'warn' else '' }}" style="left:{{ r.left + 1 }}%"></div>
+            {% endif %}
+            {% endfor %}
+            {% if lane.ghost %}
+              <div class="run stale" style="left:1%;width:97%" title="No runs in this window — last seen {{ lane.since_last_h }}h ago"></div>
+              <div class="ghost-note">no runs in window · last {{ lane.since_last_h }}h ago</div>
+            {% elif lane.stale %}<div class="run stale" style="left:{{ lane.runs[-1].left + 2 if lane.runs else 80 }}%;width:{{ 98 - (lane.runs[-1].left + 2 if lane.runs else 80) }}%"></div>{% endif %}
+            {# predicted next run, learned from the pipeline's own schedule #}
+            {% if lane.predict %}
+            {% set pr = lane.predict %}
+            {% if pr.confident %}
+              <div class="pred {{ 'overdue' if pr.overdue }}" style="left:{{ pr.left }}%"
+                   title="runs every {{ pr.cadence }} · next expected {{ pr.at_full }} (±{{ pr.jitter_pct }}%){{ ' · OVERDUE' if pr.overdue }}"></div>
+              <div class="pred-lbl {{ 'overdue' if pr.overdue }}" style="left:{{ pr.left }}%">{{ pr.at }}</div>
+            {% else %}
+              <div class="predband {{ 'overdue' if pr.overdue }}" style="left:{{ pr.band_left }}%;width:{{ pr.band_width }}%"
+                   title="runs roughly every {{ pr.cadence }} (irregular, ±{{ pr.jitter_pct }}%) · next expected around {{ pr.at_full }}{{ ' · OVERDUE' if pr.overdue }}"></div>
+            {% endif %}
+            {% endif %}
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+      {% endmacro %}
+
+      {% for sg in supergroups %}
+      {% if sg.grouped %}
+      {%- set gid = 'g%d'|format(loop.index) -%}
+      {# level-1 group header: collects several families (same colour on the board) #}
+      <div class="grp-row" data-grp="{{ gid }}">
+        <div class="grp-name">
+          <div class="ico {{ sg.kind }}" title="{{ sg.kind }}">{{ sg.kind[0]|upper }}</div>
+          <span class="gname" title="{{ sg.group }}">{{ sg.group }}</span>
+          <span class="fmeta">{{ sg.n_fam }} families · {{ sg.n }}</span>
+          {% if sg.n_fail %}<span class="fmeta"><span class="dot crit"></span>{{ sg.n_fail }}</span>{% endif %}
+          {% if sg.n_warn %}<span class="fmeta"><span class="dot warn"></span>{{ sg.n_warn }}</span>{% endif %}
+          {% if sg.stale %}<span class="fmeta"><span class="dot stale"></span>{{ sg.stale }}</span>{% endif %}
+          <span class="chev">▶</span>
+          <span class="status-pill {{ sg.status_cls }}">{{ sg.status_cls|upper }}</span>
+        </div>
+        <div class="grp-bar">
+          {% if mode == 'range' %}
+            {% for b in sg.bars %}<div class="frun {{ b.cls }}{{ ' mixed' if b.mixed }}" style="left:{{ b.left }}%;width:{{ b.width or 1 }}%;{{ b.style or '' }}" title="{{ b.n }} events · {{ b.sevs|join(' + ') }}{{ ' · alerted' if b.alert }}"></div>{% endfor %}
+          {% else %}
+            {% for r in sg.runs %}<div class="frun {{ r.cls }}{{ ' mixed' if r.mixed }}" style="left:{{ r.left }}%;width:2%;{{ r.style or '' }}" title="{{ r.n }} events · {{ r.sevs|join(' + ') }}{{ ' · alerted' if r.alert }}"></div>{% if r.alert or r.cls == 'fail' %}<div class="fmarker {{ 'warn' if r.cls == 'warn' else '' }}" style="left:{{ r.left + 1 }}%"></div>{% endif %}{% endfor %}
+          {% endif %}
+          {% if sg.ghost %}<span class="ghost-note">no runs in window</span>{% endif %}
+        </div>
+      </div>
+      {% for grp in sg.families %}{{ fam_block(grp, '%sf%d'|format(gid, loop.index), gid) }}{% endfor %}
+      {% else %}
+      {{ fam_block(sg.families[0], 'f%d'|format(loop.index), '') }}
+      {% endif %}
+      {% else %}
+      <div class="pipe-row"><div class="empty" style="grid-column:1/-1">No pipeline activity in this window.</div></div>
+      {% endfor %}
+
+      <div class="bottom" style="grid-column:1/-1">
+        <div class="label">{% if mode == 'range' %}Alerts / {{ bucket_label }}{% else %}Alerts / hour{% endif %}</div>
+        {% if mode == 'range' %}
+        <div class="bars-row" style="grid-template-columns:repeat({{ per_bucket|length }},1fr)">
+          {% for b in per_bucket %}
+          <div class="bar" title="fail:{{ b.fail }} warn:{{ b.warn }} info:{{ b.info }}">
+            {% if b.fail %}<span class="fail" style="height:{{ (b.fail / maxbar * 70)|round(1) }}px"></span>{% endif %}
+            {% if b.warn %}<span class="warn" style="height:{{ (b.warn / maxbar * 70)|round(1) }}px"></span>{% endif %}
+            {% if b.info %}<span class="info" style="height:{{ (b.info / maxbar * 70)|round(1) }}px"></span>{% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="bars-row" style="grid-template-columns:repeat({{ hours|length }},1fr)">
+          {% if now_left_pct is not none %}<div class="now-line" style="left:{{ now_left_pct }}%"></div>{% endif %}
+          {% for h in hours %}
+          <div class="bar" title="{{ h.hour }} — fail:{{ h.fail }} warn:{{ h.warn }} info:{{ h.info }}">
+            {% if h.fail %}<span class="fail" style="height:{{ (h.fail / maxbar * 70)|round(1) }}px"></span>{% endif %}
+            {% if h.warn %}<span class="warn" style="height:{{ (h.warn / maxbar * 70)|round(1) }}px"></span>{% endif %}
+            {% if h.info %}<span class="info" style="height:{{ (h.info / maxbar * 70)|round(1) }}px"></span>{% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+
+      {# Credits chart PAUSED (db.ENABLE_CREDITS). The whole row stays in the
+         template — set MONTY_ENABLE_CREDITS=1 to bring it straight back. #}
+      <div class="bottom credits" style="grid-column:1/-1">
+        <div class="label">Credits · {{ warehouse_name }}</div>
+        <div class="cwrap">
+          {% if not credits_enabled %}
+          <div class="cempty">credits chart paused · ACCOUNT_USAGE queries skipped ·
+            set <span style="color:var(--muted)">MONTY_ENABLE_CREDITS=1</span> to re-enable</div>
+          {% elif has_credits %}
+          <svg class="cchart" viewBox="0 0 1000 100" preserveAspectRatio="none">
+            {% if credit_ref.has_peak %}
+            <line class="ref cloud" x1="0" x2="1000" y1="{{ credit_ref.cloud_y }}" y2="{{ credit_ref.cloud_y }}"></line>
+            <line class="ref compute" x1="0" x2="1000" y1="{{ credit_ref.compute_y }}" y2="{{ credit_ref.compute_y }}"></line>
+            <line class="ref used" x1="0" x2="1000" y1="{{ credit_ref.used_y }}" y2="{{ credit_ref.used_y }}"></line>
+            {% endif %}
+            <polyline class="cl cloud" points="{{ credit_pts.cloud }}"></polyline>
+            <polyline class="cl compute" points="{{ credit_pts.compute }}"></polyline>
+            <polyline class="cl total" points="{{ credit_pts.total }}"></polyline>
+          </svg>
+          {% if now_left_pct is not none %}<div class="now-line" style="left:{{ now_left_pct }}%"></div>{% endif %}
+          <div class="clegend">
+            <span><i style="background:#22d3ee"></i>used<b>{{ credit_totals.used }}</b>{% if credit_ref.has_peak %}<em>max {{ credit_ref.used }}</em>{% endif %}</span>
+            <span><i style="background:#a78bfa"></i>compute<b>{{ credit_totals.compute }}</b>{% if credit_ref.has_peak %}<em>max {{ credit_ref.compute }}</em>{% endif %}</span>
+            <span><i style="background:#fbbf24"></i>cloud svc<b>{{ credit_totals.cloud }}</b>{% if credit_ref.has_peak %}<em>max {{ credit_ref.cloud }}</em>{% endif %}</span>
+          </div>
+          <div class="cmax">{% if credit_ref.has_peak %}⌇ all-time peak {{ credit_ref.used }} cr/h{% else %}peak {{ credit_max }} cr/{% if mode == 'range' %}{{ bucket_label }}{% else %}h{% endif %}{% endif %}</div>
+          {% else %}
+          <div class="cempty">{% if credit_error %}credits unavailable — {{ credit_error[:100] }}{% else %}no credit usage for {{ warehouse_name }} in this window{% endif %}</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="summary">
+    <div class="card">
+      <div class="label">Failures · {% if mode == 'range' %}range{% elif centered %}last {{ history_hours }}h{% else %}last {{ window_hours }}h{% endif %}</div>
+      <div class="value">{{ total_fail }}</div>
+      <div style="border-top:1px solid var(--line);margin:14px 0"></div>
+      {% for name, n in fails_by %}
+      <div class="row"><span class="k"><span class="dot crit"></span>{{ name[:32] }}</span><span class="v">{{ n }}</span></div>
+      {% else %}<div class="row"><span class="k">none</span><span class="v">0</span></div>{% endfor %}
+    </div>
+
+    <div class="card">
+      <div class="label">Warnings · {% if mode == 'range' %}range{% elif centered %}last {{ history_hours }}h{% else %}last {{ window_hours }}h{% endif %}</div>
+      <div class="value">{{ total_warn }}</div>
+      <div style="border-top:1px solid var(--line);margin:14px 0"></div>
+      {% for name, n in warns_by %}
+      <div class="row"><span class="k"><span class="dot warn"></span>{{ name[:32] }}</span><span class="v">{{ n }}</span></div>
+      {% else %}<div class="row"><span class="k">none</span><span class="v">0</span></div>{% endfor %}
+    </div>
+
+    <div class="card">
+      {% if mode == 'range' %}
+      <div class="label">Range summary</div>
+      <div class="value">{{ days }}d</div>
+      <div style="border-top:1px solid var(--line);margin:14px 0"></div>
+      <div class="row"><span class="k">buckets</span><span class="v">{{ n_buckets }} × {{ bucket_label }}</span></div>
+      <div class="row"><span class="k">window</span><span class="v">{{ range_from }} → {{ range_to }}</span></div>
+      <div class="row"><span class="k">active pipelines</span><span class="v">{{ lanes|length }}</span></div>
+      {% else %}
+      <div class="label">Stale pipelines</div>
+      <div class="value">{{ stale|length }}</div>
+      <div style="border-top:1px solid var(--line);margin:14px 0"></div>
+      {% for name, hrs, cad, last, after in stale %}
+      <div class="row"><span class="k"><span class="dot stale"></span>{{ name[:26] }}</span><span class="v">{{ hrs }}h</span></div>
+      <div class="row"><span class="k">runs {{ cad }} · overdue past {{ after }}</span><span class="v">last {{ last }}</span></div>
+      {% else %}<div class="row"><span class="k">none stale</span><span class="v">✓</span></div>{% endfor %}
+      {% endif %}
+    </div>
+  </section>
+</div>
+  <div class="drawer-scrim" id="scrim"></div>
+  <aside class="drawer" id="drawer" aria-hidden="true">
+    <div class="dh">
+      <div>
+        <h3 id="d-pipe">—</h3>
+        <div class="meta" id="d-meta">—</div>
+      </div>
+      <button class="x" id="d-close" title="Close">✕</button>
+    </div>
+    <div class="body">
+      <div class="chips" id="d-chips"></div>
+      <div id="d-events"></div>
+    </div>
+  </aside>
+
+  <script>
+    // Resizable pipeline column — drag the divider, persists across reloads.
+    (function () {
+      var KEY = 'monty.timeline.namew', MIN = 160, MAX = 700;
+      var root = document.documentElement;
+      var saved = parseInt(localStorage.getItem(KEY), 10);
+      if (saved >= MIN && saved <= MAX) root.style.setProperty('--namew', saved + 'px');
+
+      var handle = document.getElementById('colResize');
+      if (!handle) return;
+      var grid = handle.parentElement, dragging = false;
+
+      function current() {
+        var v = parseInt(getComputedStyle(root).getPropertyValue('--namew'), 10);
+        return isNaN(v) ? 240 : v;
+      }
+      function setW(px) {
+        px = Math.max(MIN, Math.min(MAX, Math.round(px)));
+        root.style.setProperty('--namew', px + 'px');
+        if (window.__placeNowGlobal) window.__placeNowGlobal();
+      }
+      handle.addEventListener('mousedown', function (e) {
+        e.preventDefault(); dragging = true;
+        document.body.classList.add('col-resizing'); handle.classList.add('drag');
+      });
+      window.addEventListener('mousemove', function (e) {
+        if (dragging) setW(e.clientX - grid.getBoundingClientRect().left);
+      });
+      window.addEventListener('mouseup', function () {
+        if (!dragging) return;
+        dragging = false;
+        document.body.classList.remove('col-resizing'); handle.classList.remove('drag');
+        localStorage.setItem(KEY, current());
+      });
+      // double-click divider resets to the default width
+      handle.addEventListener('dblclick', function () {
+        root.style.removeProperty('--namew'); localStorage.removeItem(KEY);
+      });
+    })();
+  </script>
+
+  <script>
+    // Faint full-page NOW line. Its x is inside the track column, whose width
+    // depends on the resizable name column, so measure a real track and place a
+    // page-tall line at the same x. Recompute on resize / column drag.
+    (function () {
+      var line = document.getElementById('nowGlobal');
+      if (!line) return;
+      var page = document.querySelector('.page');
+      var pct = {{ now_left_pct|tojson }};        // % across the track area
+      function ref() { return document.querySelector('.pipe-track') || document.querySelector('.axis'); }
+
+      function place() {
+        var track = ref();
+        if (!track || pct == null) { line.style.display = 'none'; return; }
+        var tr = track.getBoundingClientRect(), pr = page.getBoundingClientRect();
+        if (!tr.width) { line.style.display = 'none'; return; }
+        line.style.left = Math.round(tr.left - pr.left + tr.width * pct / 100) + 'px';
+        line.style.display = 'block';
+      }
+      place();
+      window.addEventListener('resize', place);
+      window.addEventListener('load', place);      // fonts/layout settle
+      // catch the pipeline-name column being dragged (changes track width)
+      var grid = document.querySelector('.timeline');
+      if (grid && window.ResizeObserver) new ResizeObserver(place).observe(grid);
+      window.__placeNowGlobal = place;             // resize handler nudges it too
+    })();
+  </script>
+
+  <script>
+    // Three-level collapse/expand: level-1 GROUPS hold families, level-2
+    // FAMILIES hold lanes. All rows are flat siblings in the grid — nesting is
+    // by data-attribute, not DOM — so a group hides its members via `gcollapsed`
+    // and a family hides its lanes via `collapsed`; a grouped lane carries both
+    // and stays hidden while EITHER is set. Everything starts collapsed on load.
+    (function () {
+      var fams = document.querySelectorAll('.fam-row');
+      var grps = document.querySelectorAll('.grp-row');
+      if (!fams.length && !grps.length) return;
+
+      function lanesOf(fam) {
+        return document.querySelectorAll('.pipe-row[data-in-fam="' + fam + '"]');
+      }
+      function setFamOpen(row, open) {
+        row.classList.toggle('open', open);
+        lanesOf(row.dataset.fam).forEach(function (l) {
+          l.classList.toggle('collapsed', !open);
+        });
+      }
+      function membersOf(gid) {   // family headers AND lanes inside this group
+        return document.querySelectorAll('[data-in-grp="' + gid + '"]');
+      }
+      function setGrpOpen(row, open) {
+        row.classList.toggle('open', open);
+        membersOf(row.dataset.grp).forEach(function (el) {
+          el.classList.toggle('gcollapsed', !open);
+        });
+      }
+
+      fams.forEach(function (row) {
+        setFamOpen(row, false);
+        row.addEventListener('click', function () {
+          setFamOpen(row, !row.classList.contains('open'));
+        });
+      });
+      grps.forEach(function (row) {
+        setGrpOpen(row, false);
+        row.addEventListener('click', function () {
+          setGrpOpen(row, !row.classList.contains('open'));
+        });
+      });
+
+      function setAll(open) {
+        grps.forEach(function (row) { setGrpOpen(row, open); });
+        fams.forEach(function (row) { setFamOpen(row, open); });
+      }
+      var ex = document.getElementById('famExpand');
+      var co = document.getElementById('famCollapse');
+      if (ex) ex.addEventListener('click', function (e) { e.preventDefault(); setAll(true); });
+      if (co) co.addEventListener('click', function (e) { e.preventDefault(); setAll(false); });
+    })();
+  </script>
+
+  <script id="run-detail" type="application/json">{{ run_detail|tojson }}</script>
+  <script>
+    (function () {
+      var RD = JSON.parse(document.getElementById('run-detail').textContent);
+      var drawer = document.getElementById('drawer'), scrim = document.getElementById('scrim');
+      var SEVW = {critical: 'crit', error: 'err', warning: 'warn', info: 'info'};
+      function esc(s){var d=document.createElement('div');d.textContent=(s==null?'':s);return d.innerHTML;}
+
+      function open(id) {
+        var d = RD[id]; if (!d) return;
+        document.getElementById('d-pipe').textContent = d.pipeline;
+        document.getElementById('d-meta').textContent = d.time + '  ·  ' + d.n + ' event' + (d.n === 1 ? '' : 's');
+        // chips: severity breakdown (range) or worst severity (run) + alert
+        var chips = [];
+        if (d.breakdown) {
+          ['critical','error','warning','info'].forEach(function (k) {
+            if (d.breakdown[k]) chips.push('<span class="chip ' + SEVW[k] + '">' + d.breakdown[k] + ' ' + k + '</span>');
+          });
+        } else {
+          chips.push('<span class="chip ' + SEVW[d.sev] + '">' + d.sev + '</span>');
+        }
+        if (d.alert) chips.push('<span class="chip alert">⚑ alerted Slack</span>');
+        document.getElementById('d-chips').innerHTML = chips.join('');
+        // events, grouped by metric subject (`a.b.c.rows` -> subject `a.b.c`).
+        // A run can fan out hundreds of metrics; a flat list is unreadable.
+        var evs = d.events || [];
+        function subjectOf(name) {
+          var i = String(name).lastIndexOf('.');
+          return i > 0 ? String(name).slice(0, i) : String(name);
+        }
+        function leafOf(name) {
+          var i = String(name).lastIndexOf('.');
+          return i > 0 ? String(name).slice(i + 1) : String(name);
+        }
+        var order = [], byS = {};
+        evs.forEach(function (e) {
+          var s = subjectOf(e.m);
+          if (!byS[s]) { byS[s] = []; order.push(s); }
+          byS[s].push(e);
+        });
+        function evHtml(e, useLeaf) {
+          var sub = [];
+          if (e.v != null) sub.push('value <span class="val">' + esc(e.v) + '</span>');
+          if (e.a) sub.push('<span style="color:#22d3ee">alerted</span>');
+          return '<div class="ev ' + e.s + '">' +
+            '<div class="top"><div class="m"><span class="sevdot"></span>' +
+              esc(useLeaf ? '.' + leafOf(e.m) : e.m) + '</div><div class="t">' + esc(e.t) + '</div></div>' +
+            (sub.length ? '<div class="sub">' + sub.join(' · ') + '</div>' : '') +
+            (e.p ? '<div class="pl">' + esc(e.p) + '</div>' : '') +
+          '</div>';
+        }
+        var html = order.map(function (s) {
+          var list = byS[s];
+          if (list.length === 1) return evHtml(list[0], false);   // no group for one
+          var worst = list.some(function (e) { return e.s === 'critical' || e.s === 'error'; })
+            ? 'crit' : list.some(function (e) { return e.s === 'warning'; }) ? 'warn' : 'ok';
+          return '<details class="evgrp" open>' +
+            '<summary><span class="dot ' + worst + '"></span>' + esc(s) +
+            '<span class="n">' + list.length + '</span></summary>' +
+            list.map(function (e) { return evHtml(e, true); }).join('') +
+          '</details>';
+        }).join('');
+        document.getElementById('d-events').innerHTML =
+          html || '<div style="color:var(--muted);font-size:12px">No event detail captured.</div>';
+        drawer.classList.add('open'); scrim.classList.add('open'); drawer.setAttribute('aria-hidden', 'false');
+      }
+      function close() { drawer.classList.remove('open'); scrim.classList.remove('open'); drawer.setAttribute('aria-hidden', 'true'); }
+
+      document.querySelectorAll('.runx').forEach(function (el) {
+        el.addEventListener('click', function () { open(el.getAttribute('data-run')); });
+      });
+      document.getElementById('d-close').addEventListener('click', close);
+      scrim.addEventListener('click', close);
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+    })();
+  </script>
+</body>
+</html>
