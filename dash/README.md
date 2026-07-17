@@ -159,6 +159,136 @@ Scan:   ~28s  +  bytes/0.47MBps                 <- floor is the whole table
 Query:          bytes/0.47MBps + rows/10400ps   <- no floor
 ```
 
+#### Why Scan was slow
+
+The filter was never the problem. DynamoDB applies `FilterExpression` **after**
+reading, and the 1MB page limit counts what was *read*, not what survived — so
+asking for one day still dragged the whole table past the filter.
+
+```mermaid
+flowchart LR
+    subgraph SCAN ["Scan — 28.0s, 92 pages"]
+        direction TB
+        S1["read ALL 178,862 items<br/>1MB pages of SCANNED data"]
+        S2["apply FilterExpression<br/>occurred_at BETWEEN start, now"]
+        S3["3,679 items survive"]
+        S1 --> S2 --> S3
+        S4["175,183 items read<br/>then thrown away"]
+        S2 -.discarded.-> S4
+    end
+
+    subgraph QUERY ["Query — 2.1s, 12 pages"]
+        direction TB
+        Q1["jump to pk = env#pipeline"]
+        Q2["walk sk range only<br/>sk BETWEEN start, now+sentinel"]
+        Q3["3,679 items — read, none wasted"]
+        Q1 --> Q2 --> Q3
+    end
+
+    SCAN ~~~ QUERY
+
+    style S4 fill:#5c1a1a,stroke:#a33,color:#fff
+    style S3 fill:#1a4d2e,stroke:#3a7,color:#fff
+    style Q3 fill:#1a4d2e,stroke:#3a7,color:#fff
+```
+
+Identical rows out. The difference is entirely what got read to produce them —
+and the wasted 175,183 grows every day, while the Query path does not.
+
+#### The key IS the index
+
+No GSI was needed because the sort key already begins with the timestamp, so
+sorting by `sk` *is* sorting by time. A range over `sk` is a range over
+`occurred_at`, for free, on the table exactly as it already exists.
+
+```mermaid
+flowchart TD
+    ITEM["pk = 'prod#ai-ingest-postgressql-ai-ingest'<br/>sk = '2026-07-17T09:14:02.831447+00:00#a3f9...'"]
+    ITEM --> PK["pk — WHICH pipeline<br/>11 partitions, read in parallel"]
+    ITEM --> SK["sk — WHEN<br/>starts with the ISO timestamp,<br/>so lexical order = chronological order"]
+    SK --> RANGE["Key('sk').between(start, end + '#￿')<br/>== the old occurred_at filter,<br/>but as a key lookup, not a scan"]
+
+    style SK fill:#1a3d5c,stroke:#37a,color:#fff
+    style RANGE fill:#1a4d2e,stroke:#3a7,color:#fff
+```
+
+The `#￿` upper sentinel exists because sk carries a `#<uuid>` suffix after
+the timestamp: it must sort above every possible id, or the newest events in the
+window get cut off. The lower bound has no sentinel when the range must be
+**exclusive** — which is what keeps the two lanes below from overlapping.
+
+#### The read path — process and data flow
+
+```mermaid
+flowchart TD
+    UI["Browser — GET /?hours=24"] --> ROUTE
+
+    subgraph ROUTE ["app.py timeline route"]
+        W["window_days = ceil(24/24) = 1<br/>lookback = window_days + 7 = 8"]
+    end
+
+    ROUTE --> FE["db.fetch_events<br/>lookback_days=8, detail_days=1"]
+    FE --> DISPATCH{"MONTY_SOURCE"}
+    DISPATCH -->|snowflake / s3 / sqlite| OTHER["other legs<br/>ignore detail_days — the hint is<br/>advisory, never a contract"]
+    DISPATCH -->|dynamo| C60{"'dynamo' cache<br/>60s"}
+
+    C60 -->|hit| OUT
+    C60 -->|miss| PIPES{"'ddb_pipelines' cache<br/>1h"}
+
+    PIPES -->|miss — ~30s| DISC["pk-only Scan<br/>DynamoDB has no 'distinct partition keys',<br/>and fetch_pipeline_last_seen returns {} here"]
+    DISC --> PKS
+    PIPES -->|hit| PKS["11 pks — 'prod#pipeline'"]
+
+    PKS --> L1 & L2 & L3
+
+    subgraph LANES ["three lanes — 4 workers, NOT 8: the link is the bottleneck"]
+        L1["<b>detail</b> — [split, now]<br/>full rows incl. payload<br/>~3,679 rows · ~3s"]
+        L2["<b>trailing</b> — [start, split)<br/>occurred_at + pipeline_name ONLY<br/>~165,000 rows · ~35s"]
+        L3["<b>representative</b><br/>newest row per pk, Limit=1<br/>11 rows · ~0.5s"]
+    end
+
+    L2 --> C15{"'dynamo_trailing' cache<br/>15min · stores NORMALISED rows"}
+    C15 --> MERGE
+    L1 --> MERGE
+    L3 --> GRAFT["graft payload onto the<br/>matching row — never append,<br/>or the run is counted twice"]
+    GRAFT --> MERGE
+
+    MERGE["union — no dedupe needed:<br/>the ranges are disjoint at 'split'"]
+    MERGE --> STAMP["stamp ENVIRONMENT from the pk<br/>transform filters on it; a lean row<br/>without it is silently dropped"]
+    STAMP --> SORT["sort by OCCURRED_AT"]
+    SORT --> OUT["rows"]
+
+    OUT --> BRAZE["braze_cdi merge — prod only,<br/>live REST call, not in DynamoDB"]
+    BRAZE --> TRANSFORM["transform.build_timeline_context"]
+    TRANSFORM --> RENDER["timeline.html"]
+
+    style L1 fill:#1a4d2e,stroke:#3a7,color:#fff
+    style L2 fill:#5c4a1a,stroke:#a83,color:#fff
+    style L3 fill:#1a3d5c,stroke:#37a,color:#fff
+    style DISC fill:#5c1a1a,stroke:#a33,color:#fff
+```
+
+#### What each lane is for, on the time axis
+
+The two window lanes never overlap — `split` belongs to **detail** only.
+
+```mermaid
+gantt
+    title Rendering a 24h window pulls 8 days — but only 1 day in full
+    dateFormat YYYY-MM-DD
+    axisFormat %b %d
+    section trailing
+    "lean · ts + pipeline only · 15min cache · feeds cadence + last-seen ONLY" :done, tr, 2026-07-09, 7d
+    section detail
+    "full rows incl. payload · 60s cache · this is what you SEE" :active, dt, 2026-07-16, 1d
+```
+
+`payload` is dropped from the trailing lane because it is ~3x of all other bytes
+and the dashboard renders it on ~28 rows out of ~175,000. `environment` is
+dropped because the pk already encodes it. What is left — a timestamp and a
+pipeline name — is all the tail is ever asked for: how often did this normally
+run, and when was it last seen.
+
 **No GSI is needed, and none should be added.** `sk` is
 `"<occurred_at ISO>#<uuid>"`, so it *already is* a time index — an `sk` range
 over one `pk` is exactly the old `occurred_at` filter, per pipeline. A

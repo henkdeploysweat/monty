@@ -338,7 +338,7 @@ def fetch_events(lookback_days: int = 7, env: str = "prod",
     elif source == "sqlite":
         rows = _fetch_sqlite(lookback_days, env, now)
     elif source == "both":
-        rows = _fetch_both(lookback_days, env, now)
+        rows = _fetch_both(lookback_days, env, now, detail_days)
     else:
         rows = _fetch_snowflake(lookback_days, env, now)
 
@@ -1064,7 +1064,7 @@ def _row_key(row):
             row.get("OCCURRED_AT"), row.get("METRIC_VALUE"))
 
 
-def _fetch_both(lookback_days, env, now):
+def _fetch_both(lookback_days, env, now, detail_days=None):
     """Union of everything Snowflake has (lambda critical/error + all dbt/auditor
     rows) plus the lambda warning/info rows.
 
@@ -1110,9 +1110,29 @@ def _fetch_both(lookback_days, env, now):
     # so this is safe.
     from concurrent.futures import ThreadPoolExecutor
     all_legs = [("snowflake", _fetch_snowflake)] + warn_legs
+
+    # `detail_days` lets the DynamoDB leg fetch its trailing tail lean, which is
+    # most of its speed — but ONLY when it is the sole warning/info leg.
+    # _row_key dedupes on (pipeline, metric, occurred_at, value); a lean row has
+    # metric/value None, so against another warn leg it would both fail to match
+    # its own full twin (duplicating the event) AND collide with a sibling metric
+    # at the same instant (silently dropping it). Correctness first: in a union
+    # the dynamo leg reads full rows and stays slow. Set
+    # MONTY_BOTH_WARN_SOURCE=dynamo to get the fast path — post-cutover the
+    # sqlite/s3 legs are belt-and-braces anyway.
+    lean_leg = "dynamo" if [n for n, _ in warn_legs] == ["dynamo"] else None
+    if detail_days is not None and lean_leg is None and len(warn_legs) > 1:
+        logger.info("both: %d warn legs — dynamo reads FULL rows so cross-store "
+                    "dedup stays sound; set MONTY_BOTH_WARN_SOURCE=dynamo for "
+                    "the fast path", len(warn_legs))
+
+    def submit(pool, name, fn):
+        if name == lean_leg:
+            return pool.submit(fn, lookback_days, env, now, detail_days)
+        return pool.submit(fn, lookback_days, env, now)
+
     with ThreadPoolExecutor(max_workers=len(all_legs)) as pool:
-        futures = {name: pool.submit(fn, lookback_days, env, now)
-                   for name, fn in all_legs}
+        futures = {name: submit(pool, name, fn) for name, fn in all_legs}
 
         # Snowflake (critical/error + every dbt metric): its own banner entry.
         # Losing it means the page would look healthy and near-empty, so shout.
