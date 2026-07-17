@@ -476,7 +476,10 @@
                             </tr>
                             {% endif %}
                             {% for r in p.rows %}
-                            <tr class="table-row border-b border-white/5 {{ 'metric-pick cursor-pointer' if r.scored }} {{ 'is-anom' if r.anom else ('is-skip' if not r.scored else 'is-ok') }}"
+                            {# `metric-row` marks EVERY row in the collapsible table; `metric-pick`
+                               marks only the ones that open a chart (unscored metrics have none).
+                               They are separate on purpose — see the selector in the table script. #}
+                            <tr class="table-row metric-row border-b border-white/5 {{ 'metric-pick cursor-pointer' if r.scored }} {{ 'is-anom' if r.anom else ('is-skip' if not r.scored else 'is-ok') }}"
                                 data-group="{{ gid }}" data-sub="{{ pid }}"
                                 data-metric="{{ r.metric }}"
                                 data-search="{{ r.metric|lower }} {{ r.pipeline|lower }} {{ g.group|lower }} {{ p.family|lower }}"
@@ -895,7 +898,11 @@
             var noMatch = document.getElementById('noMetricMatch');
             var grpRows = Array.prototype.slice.call(body.querySelectorAll('tr.grp-row'));
             var subRows = Array.prototype.slice.call(body.querySelectorAll('tr.sub-row'));
-            var rows = Array.prototype.slice.call(body.querySelectorAll('tr.metric-pick'));
+            // `metric-row`, NOT `metric-pick`: metric-pick is only on rows that open a
+            // chart, i.e. scored ones. Selecting on it here meant the ~600 unscored rows
+            // were never in `rows`, so apply() never hid them and the whole table was
+            // stuck permanently expanded. Every row carries the data-* this needs.
+            var rows = Array.prototype.slice.call(body.querySelectorAll('tr.metric-row'));
             var statusFilter = 'all';
             var openG = {}, openS = {};
 
