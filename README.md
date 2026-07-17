@@ -106,16 +106,20 @@ flowchart TD
 > ℹ️ **Severity-based storage routing (`metric_writer.write` in
 > `lambdas/shared/metric_writer.py`).** Replaced the old `PERSISTED_SEVERITIES`
 > drop-gate. `SNOWFLAKE_SEVERITIES = ("critical", "error")` still INSERT into
-> `CUSTOM_METRICS`; `S3_SEVERITIES = ("warning", "info")` are written as Parquet
-> to S3 (`monty-<env>-metrics`, `run_date=YYYYMMDD/<uuid>.parquet`) via
-> `s3_writer.py` instead, to cut the high-frequency INSERT load that kept the
-> warehouse awake. **`info` no longer reaches Slack** (`warning` never did). The
-> S3 read/reporting path is deferred — write-only for now. **Applies only to the
-> Lambda path:** dbt hooks and the auditor proc INSERT directly into
-> `CUSTOM_METRICS`, bypassing `metric_writer`, so all four severities still persist
-> to Snowflake from them. Left alone on purpose — each is ~1 bulk INSERT per run on
-> an already-hot warehouse, so neither contributed to the idle load. Code + infra —
-> takes effect on the next `make cdk-deploy`.
+> `CUSTOM_METRICS`; `DDB_SEVERITIES = ("warning", "info")` are written as items
+> to DynamoDB (`monty-<env>-metrics-ddb`, on-demand billing, 90-day TTL) via
+> `dynamo_writer.py` instead, to cut the high-frequency INSERT load that kept the
+> warehouse awake. Key design: `pk = "<env>#<pipeline>"`,
+> `sk = "<occurred_at ISO UTC>#<uuid4>"` — "recent N for pipeline X" is one
+> `Query(pk=..., Limit=N, ScanIndexForward=False)`. **`info` no longer reaches
+> Slack** (`warning` never did). DynamoDB replaced the earlier S3 Parquet store
+> (2026-07-17); the `monty-<env>-metrics` bucket is retained read-only for
+> pre-cutover history, and the dashboard reads both (see `dash/README.md`).
+> **Applies only to the Lambda path:** dbt hooks and the auditor proc INSERT
+> directly into `CUSTOM_METRICS`, bypassing `metric_writer`, so all four
+> severities still persist to Snowflake from them. Left alone on purpose — each
+> is ~1 bulk INSERT per run on an already-hot warehouse, so neither contributed
+> to the idle load. Code + infra — takes effect on the next `make cdk-deploy`.
 
 **Channel routing (in `lambdas/observer/slack.py`).** The observer picks the
 Slack webhook per row in this precedence:
@@ -671,10 +675,11 @@ print(json.dumps({
 Monty's `LogScannerArn` (the AWS-ingest CDK pattern in §5 does this for you).
 
 > ℹ️ **Note:** the `info` row above is no longer INSERTed into `CUSTOM_METRICS`.
-> `metric_writer.write` routes `warning`/`info` (`S3_SEVERITIES`) to Parquet on
-> S3 (`monty-<env>-metrics`) instead of Snowflake; only `critical`/`error`
+> `metric_writer.write` routes `warning`/`info` (`DDB_SEVERITIES`) to DynamoDB
+> (`monty-<env>-metrics-ddb`) instead of Snowflake; only `critical`/`error`
 > (`SNOWFLAKE_SEVERITIES`) hit the table. See the storage-routing note in §3.
-> Such `info` rows therefore never reach Slack and are queried from S3, not SQL.
+> Such `info` rows therefore never reach Slack and are queried from DynamoDB
+> (`aws dynamodb query` by `pk`, or the dashboard), not SQL.
 
 ### 6.5 Add a failure POST from a non-AWS service
 

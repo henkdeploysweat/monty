@@ -46,13 +46,14 @@ up out of bed.
 
 > ℹ️ **Storage routing by severity — Lambda paths only.** `metric_writer.write`
 > routes rows by severity: `critical`/`error` (`SNOWFLAKE_SEVERITIES`) are INSERTed
-> into `CUSTOM_METRICS`; `warning`/`info` (`S3_SEVERITIES`) are written as Parquet
-> to S3 (`monty-<env>-metrics`, `run_date=YYYYMMDD/`) by `s3_writer.py`, to keep
+> into `CUSTOM_METRICS`; `warning`/`info` (`DDB_SEVERITIES`) are written as items
+> to DynamoDB (`monty-<env>-metrics-ddb`, `pk = "<env>#<pipeline>"`,
+> `sk = "<occurred_at ISO UTC>#<uuid>"`, 90-day TTL) by `dynamo_writer.py`, to keep
 > the high-frequency low-priority single-row INSERTs off the Snowflake warehouse.
 > **Consequences for Lambda-sourced rows:** `warning`/`info` no longer land in
 > `CUSTOM_METRICS` (so they can't be thresholded by `AUDIT_REGISTRY` rules or read
-> by SQL dashboards), and `info` no longer reaches Slack. The S3 read path is
-> deferred (write-only for now).
+> by SQL dashboards), and `info` no longer reaches Slack. They are queryable in
+> DynamoDB (per-pipeline `Query`) and on the Monty dashboard (`dash/`).
 >
 > **This routing does NOT apply to dbt or the auditor.** Both run inside Snowflake
 > and INSERT directly into `CUSTOM_METRICS`, bypassing `metric_writer` — so all
@@ -606,7 +607,7 @@ with sends as (
 | --- | --- | --- |
 | `monty_metric_name` | **yes** | Distinct per model. Stable across runs. |
 | `monty_metric_sql` | **yes** | A scalar `SELECT` expression. Wrapped as `(<sql>)::float` server-side. May reference `this`. |
-| `monty_severity` | no | `critical` / `error` / `warning` / `info`. Default `info`. **All four persist from dbt** — the post-hook INSERTs directly into `CUSTOM_METRICS` and does not go through `metric_writer`, so the Lambda-side S3 routing does not apply to dbt rows. Controlled by the `monty_persisted_severities` var (`dbt_project.yml`, default all four); narrow it to `['critical','error']` only to re-block during a Snowflake load spike. |
+| `monty_severity` | no | `critical` / `error` / `warning` / `info`. Default `info`. **All four persist from dbt** — the post-hook INSERTs directly into `CUSTOM_METRICS` and does not go through `metric_writer`, so the Lambda-side DynamoDB routing does not apply to dbt rows. Controlled by the `monty_persisted_severities` var (`dbt_project.yml`, default all four); narrow it to `['critical','error']` only to re-block during a Snowflake load spike. |
 | `monty_is_alert` | no | `true` to always page on every run. Default `false` — prefer `AUDIT_REGISTRY` rules for thresholding. |
 | `monty_slack_webhook` | no | Full Slack incoming-webhook URL (`https://hooks.slack.com/...`). The §7.0 `monty_post_hook` writes it into the row payload as `slack_webhook`; the observer then posts directly there (ALERT_OUTBOX label `custom-webhook`). Non-`hooks.slack.com` URLs are rejected (SSRF guard) and fall back to env/severity routing. See §2. |
 

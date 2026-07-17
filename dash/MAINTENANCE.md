@@ -65,10 +65,11 @@ on `MONTY_SOURCE` (in `.env`):
 
 | `MONTY_SOURCE` | Reads from | Notes |
 |----------------|-----------|-------|
-| `snowflake`    | `CUSTOM_METRICS` table | fast (<1s), no S3/SSO |
-| `s3`           | live S3 Parquet | slow cold (~34k tiny files/day) |
+| `snowflake`    | `CUSTOM_METRICS` table | fast (<1s), no AWS/SSO |
+| `dynamo`       | DynamoDB `monty-{env}-metrics-ddb` | live warn/info since the 2026-07-17 cutover; one paginated Scan |
+| `s3`           | live S3 Parquet | **pre-cutover history only** (lambdas no longer write S3); slow cold |
 | `sqlite`       | local `monty.db` events | instant; only as fresh as last ingest |
-| `both` (default) | Snowflake **∪** SQLite **∪** live-S3 | see below |
+| `both` (default) | Snowflake **∪** DynamoDB **∪** SQLite **∪** live-S3 | see below |
 | `csv`          | `sample_events.csv` | offline dev |
 
 ### `both` — the production setting
@@ -78,19 +79,24 @@ Two producers split by severity:
 - **Snowflake** holds every `critical`/`error` row **plus all dbt + auditor
   metrics** (dbt hooks / the auditor proc write directly to the table, so *all*
   their severities including `info` land here).
-- **S3** holds only the lambda `warning`/`info` rows (one tiny Parquet per event).
+- **DynamoDB** holds the lambda `warning`/`info` rows written since the
+  2026-07-17 cutover (one item per event, 90-day TTL); **S3** holds the
+  pre-cutover Parquet history.
 
 `both` takes the **union** and de-dups on `(PIPELINE_NAME, METRIC_NAME,
-OCCURRED_AT, METRIC_VALUE)`. The warning/info side is itself a union of two legs
-(controlled by `MONTY_BOTH_WARN_SOURCE`, default `union`):
+OCCURRED_AT, METRIC_VALUE)`. The warning/info side is itself a union of three
+legs (controlled by `MONTY_BOTH_WARN_SOURCE`, default `union`):
 
-- **SQLite** — the archived history (fast).
-- **live S3** — the recent tail not yet ingested (kept small by the archiver).
+- **DynamoDB** — the live tail (post-cutover writes).
+- **SQLite** — the archived S3 history (fast).
+- **live S3** — the pre-cutover tail not yet ingested (kept small by the archiver).
 
-Reading both and de-duping means the ingest job moving objects to `archive/` can
-**never leave a gap**. If a leg errors (creds, network), it's logged and the
-others still render (`db.LAST_SOURCE_ERRORS` drives a "partial data" banner).
-Override with `MONTY_BOTH_WARN_SOURCE=s3` (live only) or `sqlite` (cache only).
+Reading all legs and de-duping means neither the S3→DynamoDB cutover nor the
+ingest job moving objects to `archive/` can **ever leave a gap**. If a leg
+errors (creds, network), it's logged and the others still render
+(`db.LAST_SOURCE_ERRORS` drives a "partial data" banner). Override with
+`MONTY_BOTH_WARN_SOURCE=dynamo` (live only — the steady state once the S3
+history ages out), `s3` (legacy live only) or `sqlite` (cache only).
 
 **On top of any source, for `env='prod'`, Braze CDI sync rows are merged in**
 (see §5).
@@ -101,6 +107,7 @@ In-process memoization, keyed to the minute so live views hit it:
 
 | bucket | default TTL | what |
 |--------|-------------|------|
+| `dynamo` | 60s | DynamoDB warn/info Scan |
 | `s3` | 60s | live S3 read |
 | `last_seen` | 120s | ghost-lane last-seen query |
 | `credits` | 300s | warehouse credits (paused by default) |
@@ -518,8 +525,8 @@ help you see the cost before applying it.
 
 | Job | Cadence | How | Failure mode |
 |-----|---------|-----|--------------|
-| **S3 → SQLite ingest** | every 60s | `scheduler/com.monty.ingest.prod.plist` (launchd) → `run_ingest.sh prod` (`--ingest --recent-days 2`) | if it stops, the SQLite cache goes stale; `both` still fills the gap from live S3 (slower) |
-| **AWS SSO login** | ~every 8–12h (token expiry) | `aws sso login --profile SWEATAnalytics` (prod) / `audiences-dev` (dev) | S3 legs return 0 rows / "session expired"; ingest ticks fail-and-log, dashboard serves last SQLite data |
+| **S3 → SQLite ingest** | every 60s | `scheduler/com.monty.ingest.prod.plist` (launchd) → `run_ingest.sh prod` (`--ingest --recent-days 2`) | if it stops, the SQLite cache goes stale; `both` still fills the gap from live S3 (slower). **Retire once the pre-cutover S3 partition is drained** — new warn/info go to DynamoDB, not S3 |
+| **AWS SSO login** | ~every 8–12h (token expiry) | `aws sso login --profile SWEATAnalytics` (prod) / `audiences-dev` (dev) | DynamoDB/S3 legs return 0 rows / "session expired"; ingest ticks fail-and-log, dashboard serves last SQLite data |
 | **Braze CDI** | none — **live on load** | automatic in `fetch_events` (60s cache) | API down → serves stored SQLite rows |
 | **Snowflake auth** | token in `.env` has an `exp` | refresh `SNOWFLAKE_PASSWORD` when it expires | queries fail auth |
 
@@ -597,18 +604,26 @@ The dashboard shows one merged stream, but data arrives three different ways:
 | # | Source | Ingestion style | Where it lands | Trigger |
 |---|--------|-----------------|----------------|---------|
 | 1 | **Snowflake** `CUSTOM_METRICS` | none — queried live | (stays in Snowflake) | every page load |
-| 2 | **S3** warning/info Parquet | **batch job** → SQLite, then **archive** | `monty.db` `events` | scheduled (launchd, 60s) + on-demand backfill |
+| 2 | **S3** warning/info Parquet (pre-cutover history) | **batch job** → SQLite, then **archive** | `monty.db` `events` | scheduled (launchd, 60s) + on-demand backfill |
 | 3 | **Braze CDI** sync status | **live API pull** → upsert SQLite | `monty.db` `braze_cdi_syncs` | every prod page load (60s-cached) |
+| 4 | **DynamoDB** `monty-{env}-metrics-ddb` | none — queried live (paginated Scan, 60s-cached) | (stays in DynamoDB, 90-day TTL) | every page load |
 
-Only **#2** needs an external scheduler. #1 is pull-on-demand; #3 schedules
+Only **#2** needs an external scheduler. #1/#4 are pull-on-demand; #3 schedules
 itself inside `fetch_events`.
 
 ### 12.2 Path 2 — S3 → SQLite ingest (the scheduled one)
 
-**Why it exists.** The lambda writer emits **one tiny Parquet file per event**
-(~34k/day). Reading them live is minutes-slow. The ingest job drains them into
-SQLite once and **moves the consumed objects to `archive/`**, keeping the live
-partition tiny and the dashboard fast.
+> **Cutover note (2026-07-17):** the lambdas now write `warning`/`info` to
+> DynamoDB (path #4), not S3, so **no new objects arrive in the live S3
+> partition**. This ingest keeps running only until the remaining pre-cutover
+> live-partition objects are drained/archived; after that it can be unloaded
+> (`launchctl unload scheduler/com.monty.ingest.*.plist`) and the SQLite cache
+> becomes a static archive of the S3 era.
+
+**Why it exists.** The lambda writer *used to* emit **one tiny Parquet file per
+event** (~34k/day). Reading them live is minutes-slow. The ingest job drains
+them into SQLite once and **moves the consumed objects to `archive/`**, keeping
+the live partition tiny and the dashboard fast.
 
 **The command** (`loadS3.py`):
 
@@ -736,11 +751,15 @@ currently done.)
 producers ──► Snowflake CUSTOM_METRICS ─────────────────────────┐
   (lambda crit/error, dbt, auditor)                             │  live query
                                                                 ▼
-lambda warn/info ──► S3 run_date=…/*.parquet                 db.fetch_events ──► transform ──► dashboard
-                          │  loadS3 --ingest (60s launchd)       ▲       ▲
-                          ├─► monty.db `events` ─────────────────┘       │
-                          └─► S3 archive/run_date=…/ (consumed)          │
-                                                                         │
+lambda warn/info ──► DynamoDB monty-<env>-metrics-ddb ──────► db.fetch_events ──► transform ──► dashboard
+  (since 2026-07-17)   (live Scan, 60s cache, 90d TTL)           ▲       ▲       ▲
+                                                                 │       │       │
+pre-cutover S3 run_date=…/*.parquet                              │       │       │
+                          │  loadS3 --ingest (60s launchd)       │       │       │
+                          ├─► monty.db `events` ─────────────────┘       │       │
+                          └─► S3 archive/run_date=…/ (consumed)          │       │
+                                                                         │       │
+                          (remaining live S3 tail — read direct) ────────┘       │
 Braze CDI API ──► braze_cdi.fetch_events (live, 60s cache) ──► monty.db `braze_cdi_syncs` ─┘
 ```
 
@@ -749,7 +768,8 @@ Braze CDI API ──► braze_cdi.fetch_events (live, 60s cache) ──► monty
 | Data | Freshness bound | Retained where |
 |------|-----------------|----------------|
 | Snowflake (crit/error + dbt) | live (~1s) | Snowflake (source of truth) |
-| S3 warn/info | ≤ ~1 min behind (60s ingest) + `MONTY_TTL_S3` 60s cache | `monty.db` `events` + S3 `archive/` |
+| DynamoDB warn/info (post-cutover) | live + `MONTY_TTL_DYNAMO` 60s cache | `monty-<env>-metrics-ddb`, auto-expires after 90d TTL |
+| S3 warn/info (pre-cutover history) | static — no new writes | `monty.db` `events` + S3 `archive/` |
 | Braze CDI | ≤ 60s (`BRAZE_CDI_TTL`) | `monty.db` `braze_cdi_syncs` |
 | Ghost/stale lanes | last-seen up to `PIPELINE_RETENTION_WEEKS` (14w) | derived per load |
 

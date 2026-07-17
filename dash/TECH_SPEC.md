@@ -255,8 +255,10 @@ both (see §8).
 |---|---|---|---|
 | `MONTY_TABLE` | prod | `MONITORING.PUBLIC.MONTY_EVENTS` | Fully-qualified events table — **the main thing to set** |
 | `MONTY_SOURCE_TZ` | no | `America/Los_Angeles` | Zone `OCCURRED_AT` is stored in; SQL converts it to UTC. Set to `UTC` once ingestion is UTC |
-| `MONTY_SOURCE` | no | `snowflake` | Set to `csv` for local dev (no Snowflake) |
+| `MONTY_SOURCE` | no | `snowflake` | `csv` for local dev; `dynamo` (live warn/info), `s3` (pre-cutover history), `sqlite`, or `both` (union) — see `dash/README.md` |
 | `MONTY_CSV` | csv mode | `sample_events.csv` | Path to sample CSV in dev |
+| `MONTY_DDB_TABLE` | dynamo mode | `monty-{env}-metrics-ddb` | DynamoDB table pattern; `{env}` filled from the PROD/DEV toggle |
+| `MONTY_DDB_REGION` | no | `us-east-1` | Region of the DynamoDB metrics tables |
 | `SNOWFLAKE_ACCOUNT` | prod | — | Account identifier |
 | `SNOWFLAKE_USER` | prod | — | Username |
 | `SNOWFLAKE_PASSWORD` | prod* | — | Password (*or use authenticator) |

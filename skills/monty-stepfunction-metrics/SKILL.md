@@ -43,8 +43,8 @@ Never set `is_alert: true` on `info`.
 > stdout JSON line (Path B) or a signed POST (Path A). Monty's own `log_scanner`
 > (reads your logs) / `failure_proxy` (receives the POST) then call
 > `metric_writer.write()`, which routes by severity: `critical`/`error` → Snowflake
-> `CUSTOM_METRICS`, `warning`/`info` → S3 Parquet (`monty-<env>-metrics`). You never
-> touch S3 or Snowflake. The only consequence for the emitter: `warning`/`info`
+> `CUSTOM_METRICS`, `warning`/`info` → DynamoDB (`monty-<env>-metrics-ddb`). You never
+> touch DynamoDB or Snowflake. The only consequence for the emitter: `warning`/`info`
 > never page Slack — so pick severity by urgency, not by destination.
 
 ## 2. Emit helper (stdlib only — no `requests`, no layer)
@@ -276,7 +276,8 @@ alone is usually enough and also covers crashes the `except` can't.
 1. Trigger the state machine (or invoke the Lambda) once.
 2. Metrics (Path B): confirm the `MONITORING_METRIC` JSON line in the Lambda's
    CloudWatch log stream, then the row in `MONITORING_DB.MONITORING.CUSTOM_METRICS`
-   (`critical`/`error`) or S3 `monty-<env>-metrics` (`warning`/`info`).
+   (`critical`/`error`) or DynamoDB `monty-<env>-metrics-ddb` (`warning`/`info`,
+   `aws dynamodb query` with `pk = "<env>#<pipeline_name>"`).
 3. Failures (Path A): force a failure (raise, or a state timeout) and confirm a
    `critical`/`error` row lands and `SENT_TO_SLACK` flips to TRUE within ~2 min
    (`#data-incidents`, or `#data-alerts-dev` when `environment != prod`).

@@ -18,37 +18,35 @@ monty/
   requirements.txt
 ```
 
-## Quick start — the full dashboard (Snowflake + S3)
+## Quick start — the full dashboard (Snowflake + DynamoDB + S3 history)
 
 Everything is already configured in `dash/.env` (`MONTY_SOURCE=both`, Snowflake
-creds, S3 profiles). `app.py` loads `.env` itself, so you only need three steps:
+creds, AWS profiles). `app.py` loads `.env` itself, so you only need three steps:
 
 ```bash
 # 1. one-time: install deps
 pip install -r requirements.txt
 
-# 2. every day: refresh the SSO sessions for the two S3 accounts
-#    (skip only if you already have a live session; expired -> S3 returns 0 rows
-#     with "session has expired")
-aws sso login --profile SWEATAnalytics    
-aws sso login --profile audiences-dev      # dev  S3 bucket  (account 116981766237)
-aws sso login --profile SWEATAnalytics     # prod S3 bucket  (account 534977985440)
-aws sso login --profile audiences-dev      # dev  S3 bucket  (account 116981766237)
+# 2. every day: refresh the SSO sessions for the two AWS accounts
+#    (they cover BOTH the DynamoDB tables and the legacy S3 buckets; expired ->
+#     those legs return 0 rows with "session has expired")
+aws sso login --profile audiences-dev      # dev  account 116981766237
+aws sso login --profile SWEATAnalytics     # prod account 534977985440
 
 # 3. run it
 cd dash && python3 app.py
-python3 app.py
 #   http://localhost:5000/            timeline
 #   http://localhost:5000/anomalies   anomaly detection
 ```
 
-**The first page load is slow (~1-3 min) and that is normal, not a hang.**
-`both` unions Snowflake (`critical`/`error` + every dbt/auditor row) with S3
-(lambda `warning`/`info`). Today's S3 partition is ~34,600 tiny Parquet files
-(one per event), so the cold read of that many objects takes minutes. It's
-cached afterwards (`MONTY_TTL_S3`, default 60s), so every refresh is ~1s. If you
-don't need the S3 `warning`/`info` rows, set `MONTY_SOURCE=snowflake` in `.env`
-for an instant (<1s) load.
+**The first page load can be slow (~1-3 min) and that is normal, not a hang.**
+`both` unions Snowflake (`critical`/`error` + every dbt/auditor row) with the
+lambda `warning`/`info` legs: DynamoDB (live, post-cutover), the SQLite cache,
+and legacy S3. The S3 leg is the slow one — pre-cutover partitions are
+thousands of tiny Parquet files; the DynamoDB leg is one paginated Scan.
+Everything is cached afterwards (`MONTY_TTL_DYNAMO` / `MONTY_TTL_S3`, default
+60s), so every refresh is ~1s. If you don't need the `warning`/`info` rows, set
+`MONTY_SOURCE=snowflake` in `.env` for an instant (<1s) load.
 
 To change source/behaviour, edit `dash/.env` — it is authoritative and overrides
 your shell env on every launch. Restart `python3 app.py` after any `.env` change
@@ -92,11 +90,31 @@ so you can keep the profile and just swap the warehouse or role.
 your existing app instead of running `app.py`, copy the four routes from
 `app.py` and the `templates/` + `sql/` folders across.
 
-## Point the timeline/anomaly events at S3 (Parquet)
+## Point the timeline/anomaly events at DynamoDB (live warn/info)
 
-The core event source (`db.fetch_events`, feeding the timeline + anomaly
-dashboards) can read Parquet from the per-environment metric buckets instead of
-Snowflake. Requires `boto3` + `pyarrow` (already in `requirements.txt`) and AWS
+Since the 2026-07-17 cutover the lambda `warning`/`info` metrics land in
+DynamoDB (`monty-{env}-metrics-ddb`, written by `lambdas/shared/
+dynamo_writer.py`). The core event source can read it directly:
+
+```bash
+export MONTY_SOURCE=dynamo
+# table is a pattern; {env} is filled from the PROD/DEV toggle:
+export MONTY_DDB_TABLE="monty-{env}-metrics-ddb"   # default
+# export MONTY_DDB_REGION=us-east-1                 # default
+flask --app app run
+```
+
+The reader is a paginated `Scan` filtered server-side on `environment` +
+`occurred_at BETWEEN [start, now]` (ISO UTC strings), normalised to the same
+row contract as every other source. Per-env AWS credentials resolve exactly
+like the S3 reader below (`MONTY_S3_PROFILE_<ENV>` etc. — same two accounts).
+Results are cached for `MONTY_TTL_DYNAMO` (default 60s).
+
+## Point the timeline/anomaly events at S3 (Parquet) — pre-cutover history
+
+The per-environment metric buckets hold the **pre-cutover** `warning`/`info`
+history (the lambdas no longer write here). The reader remains for that
+history. Requires `boto3` + `pyarrow` (already in `requirements.txt`) and AWS
 credentials via the standard boto3 chain (env keys, `AWS_PROFILE`, or an
 instance/task role).
 
@@ -157,31 +175,35 @@ severity.
 
 | producer | where its rows land |
 |---|---|
-| Lambdas (`metric_writer`) | `critical`/`error` → Snowflake · `warning`/`info` → S3 |
-| dbt hooks, auditor proc | **all severities → Snowflake** (they run inside Snowflake and cannot write S3) |
+| Lambdas (`metric_writer`) | `critical`/`error` → Snowflake · `warning`/`info` → DynamoDB (S3 pre-cutover) |
+| dbt hooks, auditor proc | **all severities → Snowflake** (they run inside Snowflake and cannot write DynamoDB) |
 
-So an **S3-only source shows neither failures nor any dbt metric**. The credits
-chart and `/segment` page always use Snowflake (they read Snowflake-internal
-views with no S3 equivalent), so `SNOWFLAKE_*` creds are still needed for those.
+So a **DynamoDB- or S3-only source shows neither failures nor any dbt metric**.
+The credits chart and `/segment` page always use Snowflake (they read
+Snowflake-internal views with no external equivalent), so `SNOWFLAKE_*` creds
+are still needed for those.
 
 ## Complete picture: `MONTY_SOURCE=both`
 
-To see everything, use `both` — the **union** of both stores: Snowflake (lambda
-`critical`/`error` **plus every dbt/auditor row, `info` included**) and S3
-(lambda `warning`/`info`). Needs both the `SNOWFLAKE_*` and `MONTY_S3_*` config
-above:
+To see everything, use `both` — the **union** of the stores: Snowflake (lambda
+`critical`/`error` **plus every dbt/auditor row, `info` included**) and the
+`warning`/`info` legs — by default DynamoDB (live) + SQLite cache + legacy S3
+(`MONTY_BOTH_WARN_SOURCE=union`; set it to `dynamo`/`sqlite`/`s3` to read a
+single leg, e.g. `dynamo` once the S3 history has aged out). Needs the
+`SNOWFLAKE_*` and AWS-profile config above:
 
 ```bash
 export MONTY_SOURCE=both
-# ... SNOWFLAKE_* and MONTY_S3_* as above ...
+# ... SNOWFLAKE_* and MONTY_S3_PROFILE_* / MONTY_DDB_* as above ...
 flask --app app run
 ```
 
-The two stores are disjoint in practice (verified: zero overlapping
+The stores are disjoint in practice (verified: zero overlapping
 `(pipeline, metric, occurred_at)` keys), and rows are deduped on that natural
-key anyway, so nothing is double-counted. It is resilient: if one store is
-unreachable it's logged and the other still renders, so the dashboard never
-fails because a single source hiccuped.
+key anyway, so nothing is double-counted — the dedup is also what makes the
+S3→DynamoDB cutover seamless (history from S3/SQLite, live tail from DynamoDB).
+It is resilient: if one store is unreachable it's logged and the others still
+render, so the dashboard never fails because a single source hiccuped.
 
 ## Performance
 

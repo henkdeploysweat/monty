@@ -1,5 +1,12 @@
 # Swap low-priority metrics storage: S3 Parquet → DynamoDB
 
+> ✅ **IMPLEMENTED 2026-07-17** — all items below are done (writer, routing,
+> infra, dashboard read path, tests, docs), with one deliberate deviation:
+> the S3 bucket + write grant + `MONTY_METRICS_BUCKET` env var are RETAINED
+> through cutover (zero-downtime option in §"Files to change" item 3) instead
+> of removed. Pending: `make cdk-deploy ENV=dev`, end-to-end verification
+> (§Verification), then prod. This file is kept as the design record.
+
 ## Context
 
 `warning`/`info` metrics are diverted away from Snowflake (the cost driver was

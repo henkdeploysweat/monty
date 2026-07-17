@@ -1,5 +1,12 @@
 # Scheduled ingest — keep the dashboard fast
 
+> **Cutover note (2026-07-17):** the lambdas now write `warning`/`info` to
+> DynamoDB (`monty-<env>-metrics-ddb`), not S3 — no new objects arrive in the
+> live partition. This ingest only drains the remaining **pre-cutover** S3
+> objects; once the live partition is empty it can be unloaded
+> (`launchctl unload com.monty.ingest.<env>.plist`). Live warn/info are read
+> directly from DynamoDB by `db.py` (`dynamo` leg of `MONTY_SOURCE=both`).
+
 Makes the dashboard quick without changing its look: the slow `both` leg
 (scanning ~34k tiny S3 Parquet files, up to 1–3 min cold) is replaced by an
 indexed local SQLite read. A launchd job drains new S3 objects into the cache

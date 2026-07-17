@@ -2,9 +2,22 @@
 
 ## Current Status
 
-Last updated: 2026-07-15
+Last updated: 2026-07-17
 
 ### Completed Tasks
+
+✅ Swapped low-priority metrics storage: S3 Parquet → DynamoDB (2026-07-17)
+- `warning`/`info` → one item in `monty-<env>-metrics-ddb` via new
+  `lambdas/shared/dynamo_writer.py` (`pk=env#pipeline`, `sk=isoUTC#uuid`,
+  on-demand billing, 90-day TTL); `critical`/`error` → Snowflake, unchanged
+- Dropped `pyarrow` from the Lambda image (now just
+  `snowflake-connector-python` + `boto3`); retired `s3_writer.py`,
+  `compact_s3.py`, `tests/test_s3_writer.py`
+- Dashboard reads DynamoDB: `MONTY_SOURCE=dynamo`, and `both` unions
+  dynamo + sqlite + live-S3 legs (no gap across the cutover)
+- S3 bucket + write grant + `MONTY_METRICS_BUCKET` env var RETAINED until the
+  DynamoDB path is verified in both envs — then decommission
+- NOT yet deployed — ships on the next `make cdk-deploy ENV=dev|prod`
 
 ✅ Replaced OpenAI API with Claude API in `lambdas/observer/slack.py:87-147`
 - Changed API endpoint: `https://api.openai.com/v1/chat/completions` → `https://api.anthropic.com/v1/messages`
