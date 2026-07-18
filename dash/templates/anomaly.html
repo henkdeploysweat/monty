@@ -1021,5 +1021,10 @@
         }
     })();
     </script>
+    <script>
+      // Load timing (server-measured) — visible in the browser console.
+      console.log("[monty] anomaly loaded in {{ load_s|default('?') }}s "
+        + "(fetch {{ load_fetch_s|default('?') }}s, transform {{ load_transform_s|default('?') }}s)");
+    </script>
 </body>
 </html>

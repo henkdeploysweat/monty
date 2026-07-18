@@ -13,6 +13,7 @@ Prod:       set SNOWFLAKE_* env vars and MONTY_TABLE (see db.py).
 """
 import math
 import os
+import time
 from pathlib import Path
 
 
@@ -205,10 +206,12 @@ def _timeline_ctx(env, day=None, rng=(None, None), tz="sydney", hours=None):
     # path, so this is opt-in and instantly reversible.
     _grain = os.environ.get("MONTY_TIMELINE_GRAIN", "event").lower()
     _hourly = _grain == "hour"
+    _t_start = time.perf_counter()
     rows = db.fetch_events(lookback_days=window_days + 7, env=env, now=fetch_now,
                            detail_days=window_days,
                            grain="hour" if _hourly else "event",
                            collapse_metrics=_hourly)
+    _t_fetch = time.perf_counter() - _t_start
     # CSV-dev-only: snap the window to the sample's newest row for a sensible
     # demo. In live/Snowflake mode this must NOT run — OCCURRED_AT is real UTC
     # and the anchor must stay at current UTC, or a future-looking row would
@@ -238,6 +241,7 @@ def _timeline_ctx(env, day=None, rng=(None, None), tz="sydney", hours=None):
 
     # live view (no specific day) centres NOW in the middle of the page; an
     # archived day keeps the trailing window ending at that day.
+    _t_build = time.perf_counter()
     ctx = build_timeline_context(rows, anchor,
                                  window_hours=W,
                                  env=env, live_now=live_now,
@@ -249,6 +253,16 @@ def _timeline_ctx(env, day=None, rng=(None, None), tz="sydney", hours=None):
                                  retention_weeks=db.PIPELINE_RETENTION_WEEKS,
                                  tzname=tz,
                                  bucket_to_hour=_hourly)
+    _transform_s = time.perf_counter() - _t_build
+    _total_s = time.perf_counter() - _t_start
+    # One greppable line per load: fetch (DynamoDB/Snowflake) vs transform
+    # (Python) vs total. The gap (credits + last_seen) is total - fetch - transform.
+    app.logger.info("[timing] timeline env=%s window=%dh grain=%s  fetch=%.1fs  "
+                    "transform=%.1fs  total=%.1fs  rows=%d",
+                    env, W, _grain, _t_fetch, _transform_s, _total_s, len(rows))
+    ctx["load_s"] = round(_total_s, 1)
+    ctx["load_fetch_s"] = round(_t_fetch, 1)
+    ctx["load_transform_s"] = round(_transform_s, 1)
     ctx["warehouse_name"] = db.MONTY_WAREHOUSE
     ctx["credit_error"] = credit_err
     ctx["credits_enabled"] = db.ENABLE_CREDITS
@@ -303,8 +317,10 @@ def _anomaly_ctx(env, z, min_pct, baseline_days, day=None, rng=(None, None),
     fetch_now = None if (_is_csv() and not day) else anchor
     # _agrain (MONTY_ANOMALY_GRAIN) set above: "hour" reads the hourly rollup
     # instead of raw events, so the detector scores on hourly means.
+    _t_start = time.perf_counter()
     rows = db.fetch_events(lookback_days=baseline_days, env=env, now=fetch_now,
                            grain=_agrain, collapse_metrics=False)
+    _t_fetch = time.perf_counter() - _t_start
     # CSV-dev-only snap to the (future-dated) sample's newest row; never in
     # live mode — see the matching guard in _timeline_ctx.
     if _is_csv() and not day and rows:
@@ -312,10 +328,20 @@ def _anomaly_ctx(env, z, min_pct, baseline_days, day=None, rng=(None, None),
         if anchor < latest:
             anchor = viewed = latest
 
+    _t_build = time.perf_counter()
     ctx = build_anomaly_context(rows, anchor, baseline_days=baseline_days,
                                 env=env, z_threshold=z, min_pct=min_pct,
                                 min_points=min_points, row_limit=row_limit,
                                 tzname=tz, **fkw)
+    _transform_s = time.perf_counter() - _t_build
+    _total_s = time.perf_counter() - _t_start
+    app.logger.info("[timing] anomaly  env=%s baseline=%dd grain=%s  fetch=%.1fs  "
+                    "transform=%.1fs  total=%.1fs  rows=%d",
+                    env, baseline_days, _agrain, _t_fetch, _transform_s,
+                    _total_s, len(rows))
+    ctx["load_s"] = round(_total_s, 1)
+    ctx["load_fetch_s"] = round(_t_fetch, 1)
+    ctx["load_transform_s"] = round(_transform_s, 1)
     ctx["is_live"] = day is None
     ctx["is_range"] = False
     ctx["day"] = viewed.strftime("%Y-%m-%d")

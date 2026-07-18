@@ -865,5 +865,10 @@ svg.cchart{width:100%;height:96px;display:block}
       document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
     })();
   </script>
+  <script>
+    // Load timing (server-measured) — visible in the browser console.
+    console.log("[monty] timeline loaded in {{ load_s|default('?') }}s "
+      + "(fetch {{ load_fetch_s|default('?') }}s, transform {{ load_transform_s|default('?') }}s)");
+  </script>
 </body>
 </html>
