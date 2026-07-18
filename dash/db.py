@@ -202,6 +202,9 @@ CACHE_TTL = {
     # DynamoDB cannot answer "distinct partition keys" any other way. It changes
     # when a pipeline is added, i.e. approximately never, so cache it hard.
     "ddb_pipelines": int(os.environ.get("MONTY_TTL_DDB_PIPELINES", "3600")),
+    # The settled hourly-rollup lane (rollup.py): pre-aggregated, immutable once
+    # a hour has passed, so a long cache is free — only the live tail is re-read.
+    "dynamo_rollup": int(os.environ.get("MONTY_TTL_DYNAMO_ROLLUP", "900")),
 }
 _CACHE: dict = {}
 _CACHE_LOCK = threading.Lock()
@@ -987,6 +990,180 @@ def _fetch_dynamo_impl(lookback_days, env, now, detail_days=None):
     rows.sort(key=lambda r: r["OCCURRED_AT"])
     logger.info("dynamo: %d event row(s) in window from %s",
                 len(rows), MONTY_DDB_TABLE.format(env=env))
+    return rows
+
+
+# --- Hourly rollup read path (rollup.py writes it) ------------------------
+# Reads the materialised hourly rollup instead of raw events. Serves settled
+# hours from the rollup + the last `live_tail_hours` from raw (folded to hourly
+# too, so the whole window is uniform hour-grain). Same canonical row contract,
+# plus _ROLLUP/_N/_LAST_TS markers. See rollup.py for the schema.
+_ROLLUP_ATTRS = ("pipeline_name", "metric_name", "hour", "n", "worst_sev",
+                 "any_alert", "mean_val", "last_val", "last_ts")
+_ROLLUP_SEV_RANK = {"info": 1, "warning": 2, "error": 3, "critical": 4}
+_ROLLUP_RANK_SEV = {v: k for k, v in _ROLLUP_SEV_RANK.items()}
+
+
+def _rollup_pk(env, pipeline):
+    return "%s%s#%s" % (ROLLUP_PK_PREFIX, env, pipeline)
+
+
+def _num(v):
+    from decimal import Decimal
+    return float(v) if isinstance(v, Decimal) else v
+
+
+def _rollup_row(pipeline, metric, hour, n, worst_sev, any_alert,
+                mean_val, last_ts, last_val, env):
+    """One canonical hourly row (the shape both lanes converge on)."""
+    return {"PIPELINE_NAME": pipeline, "METRIC_NAME": metric,
+            "OCCURRED_AT": hour, "SEVERITY": worst_sev or "info",
+            "IS_ALERT": bool(any_alert), "METRIC_VALUE": mean_val,
+            "ENVIRONMENT": env, "SENT_TO_SLACK": False, "SENT_AT": None,
+            "PAYLOAD": None, "_ROLLUP": True, "_N": int(n or 0),
+            "_LAST_TS": last_ts, "_LAST_VAL": last_val}
+
+
+def _normalise_rollup_item(item, env):
+    """A stored rollup item -> a canonical hourly row."""
+    hour = item.get("hour")
+    ts = None
+    if isinstance(hour, str):
+        try:
+            ts = _to_utc_naive(datetime.fromisoformat(hour))
+        except ValueError:
+            ts = None
+    return _rollup_row(item.get("pipeline_name"), item.get("metric_name"), ts,
+                       item.get("n"), item.get("worst_sev"),
+                       item.get("any_alert"), _num(item.get("mean_val")),
+                       item.get("last_ts"), _num(item.get("last_val")), env)
+
+
+def _fold_raw_hourly(rows, env):
+    """Aggregate normalised RAW rows into per-(pipeline, metric, hour) rows,
+    using the SAME aggregation the stored rollup uses — so the live tail is
+    indistinguishable from a settled hour."""
+    from datetime import timezone
+    buckets: dict = {}
+    for r in rows:
+        ts = r.get("OCCURRED_AT")
+        if ts is None:
+            continue
+        hour = ts.replace(minute=0, second=0, microsecond=0)
+        key = (r.get("PIPELINE_NAME"), r.get("METRIC_NAME"), hour)
+        agg = buckets.get(key)
+        if agg is None:
+            agg = {"n": 0, "sum": 0.0, "have": False, "last_ts": None,
+                   "last_val": None, "rank": 0, "alert": False}
+            buckets[key] = agg
+        agg["n"] += 1
+        v = r.get("METRIC_VALUE")
+        if isinstance(v, (int, float)):
+            agg["sum"] += v
+            agg["have"] = True
+        if agg["last_ts"] is None or ts > agg["last_ts"]:
+            agg["last_ts"] = ts
+            if isinstance(v, (int, float)):
+                agg["last_val"] = v
+        sev = (r.get("SEVERITY") or "info").lower()
+        agg["rank"] = max(agg["rank"], _ROLLUP_SEV_RANK.get(sev, 1))
+        agg["alert"] = agg["alert"] or bool(r.get("IS_ALERT"))
+    out = []
+    for (p, m, hour), agg in buckets.items():
+        last_iso = (agg["last_ts"].replace(tzinfo=timezone.utc).isoformat()
+                    if agg["last_ts"] else None)
+        out.append(_rollup_row(
+            p, m, hour, agg["n"], _ROLLUP_RANK_SEV.get(agg["rank"], "info"),
+            agg["alert"], (agg["sum"] / agg["n"]) if agg["have"] else None,
+            last_iso, agg["last_val"], env))
+    return out
+
+
+def _collapse_to_pipeline_hour(rows, env):
+    """Fold per-metric hourly rows into one row per (pipeline, hour): worst
+    severity, any-alert, summed count. This is what the TIMELINE needs — it
+    aggregates across metrics anyway, and this is what makes a lane ≤24 marks."""
+    buckets: dict = {}
+    for r in rows:
+        ts = r.get("OCCURRED_AT")
+        if ts is None:
+            continue
+        key = (r.get("PIPELINE_NAME"), ts)
+        agg = buckets.get(key)
+        if agg is None:
+            agg = {"n": 0, "rank": 0, "alert": False}
+            buckets[key] = agg
+        agg["n"] += int(r.get("_N", 1))
+        sev = (r.get("SEVERITY") or "info").lower()
+        agg["rank"] = max(agg["rank"], _ROLLUP_SEV_RANK.get(sev, 1))
+        agg["alert"] = agg["alert"] or bool(r.get("IS_ALERT"))
+    return [_rollup_row(p, None, ts, agg["n"],
+                        _ROLLUP_RANK_SEV.get(agg["rank"], "info"), agg["alert"],
+                        None, None, None, env)
+            for (p, ts), agg in buckets.items()]
+
+
+def _fetch_rollup_settled(env, start_hour, settled_end, cache_key):
+    """Cached (dynamo_rollup TTL) read of the stored rollup over the settled
+    span [start_hour, settled_end). Settled hours never change, so this is the
+    long-lived, cheap lane; only the live tail is re-read every request."""
+    def run():
+        table = _ddb_table(env)
+        raw_pks = [pk for pk in _ddb_pipelines(env)
+                   if not pk.startswith(ROLLUP_PK_PREFIX)]
+        rollup_pks = [_rollup_pk(env, pk.split("#", 1)[1]) for pk in raw_pks]
+        # sk = "<hour ISO>#<metric>"; an exclusive upper at the settled_end hour
+        # keeps this disjoint from the live lane (see _sk_bounds).
+        sk_lo, sk_hi = _sk_bounds(start_hour, settled_end, include_end=False)
+        items = _ddb_query_window(table, rollup_pks, sk_lo, sk_hi,
+                                  _ROLLUP_ATTRS, "rollup")
+        return [_normalise_rollup_item(it, env) for it in items]
+    return _cached("dynamo_rollup", cache_key, run)
+
+
+def fetch_rollup_events(lookback_days, env, now=None, live_tail_hours=2,
+                        collapse_metrics=False):
+    """Hourly-grain events for the window, from the rollup + a raw live tail.
+
+    Settled hours [start, now-live_tail_hours) come from the stored rollup;
+    the last `live_tail_hours` come from RAW (folded to hourly here), so the
+    newest data is never stale and a missing settled hour still renders (the
+    live lane widens to cover it). The two spans are disjoint at the hour
+    boundary, so the union needs no dedupe.
+
+    `collapse_metrics=True` (timeline) returns one row per (pipeline, hour);
+    False (anomaly) returns one row per (pipeline, metric, hour).
+    """
+    from datetime import timedelta
+    if now is None:
+        now = datetime.utcnow()
+    hour0 = now.replace(minute=0, second=0, microsecond=0)
+    settled_end = hour0 - timedelta(hours=live_tail_hours)
+    start_hour = (now - timedelta(days=lookback_days)).replace(
+        minute=0, second=0, microsecond=0)
+
+    settled = []
+    if settled_end > start_hour:
+        settled = _fetch_rollup_settled(
+            env, start_hour, settled_end,
+            (env, start_hour, settled_end))
+
+    # live tail: raw events over [settled_end, now], folded to hourly.
+    table = _ddb_table(env)
+    raw_pks = [pk for pk in _ddb_pipelines(env)
+               if not pk.startswith(ROLLUP_PK_PREFIX)]
+    live_lo, live_hi = _sk_bounds(settled_end, now, include_end=True)
+    live_items = _ddb_query_window(table, raw_pks, live_lo, live_hi,
+                                   _DDB_LEAN_ATTRS, "live")
+    live = _fold_raw_hourly([_normalise_ddb_row(it) for it in live_items], env)
+
+    rows = [dict(r) for r in settled] + live   # copy cached settled before use
+    if collapse_metrics:
+        rows = _collapse_to_pipeline_hour(rows, env)
+    rows = [r for r in rows if r.get("OCCURRED_AT") is not None]
+    rows.sort(key=lambda r: r["OCCURRED_AT"])
+    logger.info("rollup: %d hourly row(s) (%d settled + %d live, collapse=%s)",
+                len(rows), len(settled), len(live), collapse_metrics)
     return rows
 
 

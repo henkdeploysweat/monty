@@ -258,19 +258,32 @@ def build_timeline_context(rows, now: datetime, window_hours: int = 24,
             last_seen[p] = ts
         all_buckets[p].add(ts.replace(second=0, microsecond=0))
 
+        # An hourly-rollup row is a pre-aggregated bucket, not a single event:
+        # its OCCURRED_AT is the hour, and _N is how many raw events it stands
+        # for. Count by _N (default 1 for a real event) so a rollup mark shows
+        # the true volume, and skip per-event detail — the drawer lazy-loads raw
+        # events for a rollup hour instead (see app._run_detail).
+        n_events = int(_g(r, "_N", 1) or 1)
+        is_rollup = bool(_g(r, "_ROLLUP"))
+
+        # track last-seen + cadence buckets over full input range
+        if p not in last_seen or ts > last_seen[p]:
+            last_seen[p] = ts
+        all_buckets[p].add(ts.replace(second=0, microsecond=0))
+
         # window-scoped aggregates
         if win_start <= ts < win_end:
             key = (p, ts.replace(second=0, microsecond=0))
             run = runs[key]
             run["rank"] = max(run["rank"], SEV_RANK.get(sev, 1))
             run["alert"] = run["alert"] or is_alert
-            run["n"] += 1
-            if len(run["events"]) < 40:      # cap detail per run
+            run["n"] += n_events
+            if not is_rollup and len(run["events"]) < 40:   # cap detail per run
                 run["events"].append(_event_detail(r, sev, is_alert, LT))
             c = counts[p]
-            c["events"] += 1
+            c["events"] += n_events
             if sev in c:
-                c[sev] += 1
+                c[sev] += n_events
             if is_alert:
                 c["alerts"] += 1
 
