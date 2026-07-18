@@ -200,8 +200,15 @@ def _timeline_ctx(env, day=None, rng=(None, None), tz="sydney", hours=None):
     # only, so `detail_days` lets a source fetch it lean (see db.fetch_events).
     # Rendering 24h used to drag back 8 days of payloads for nothing.
     window_days = math.ceil(W / 24)
+    # MONTY_TIMELINE_GRAIN=hour reads the pre-aggregated hourly rollup instead of
+    # raw events — ≤24 marks/lane, far fewer rows. Default "event" keeps the raw
+    # path, so this is opt-in and instantly reversible.
+    _grain = os.environ.get("MONTY_TIMELINE_GRAIN", "event").lower()
+    _hourly = _grain == "hour"
     rows = db.fetch_events(lookback_days=window_days + 7, env=env, now=fetch_now,
-                           detail_days=window_days)
+                           detail_days=window_days,
+                           grain="hour" if _hourly else "event",
+                           collapse_metrics=_hourly)
     # CSV-dev-only: snap the window to the sample's newest row for a sensible
     # demo. In live/Snowflake mode this must NOT run — OCCURRED_AT is real UTC
     # and the anchor must stay at current UTC, or a future-looking row would
@@ -240,7 +247,8 @@ def _timeline_ctx(env, day=None, rng=(None, None), tz="sydney", hours=None):
                                  credit_peaks=credit_peaks,
                                  last_seen_all=last_seen_all,
                                  retention_weeks=db.PIPELINE_RETENTION_WEEKS,
-                                 tzname=tz)
+                                 tzname=tz,
+                                 bucket_to_hour=_hourly)
     ctx["warehouse_name"] = db.MONTY_WAREHOUSE
     ctx["credit_error"] = credit_err
     ctx["credits_enabled"] = db.ENABLE_CREDITS

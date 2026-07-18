@@ -315,7 +315,9 @@ def _connect():
 
 def fetch_events(lookback_days: int = 7, env: str = "prod",
                  now: datetime | None = None,
-                 detail_days: int | None = None) -> list[dict]:
+                 detail_days: int | None = None,
+                 grain: str = "event",
+                 collapse_metrics: bool = False) -> list[dict]:
     """Return event rows for the given environment over the lookback window.
     OCCURRED_AT / SENT_AT come back normalised to UTC.
 
@@ -337,11 +339,15 @@ def fetch_events(lookback_days: int = 7, env: str = "prod",
     elif source == "s3":
         rows = _fetch_s3(lookback_days, env, now)
     elif source in ("dynamo", "ddb", "dynamodb"):
-        rows = _fetch_dynamo(lookback_days, env, now, detail_days)
+        rows = (fetch_rollup_events(lookback_days, env, now,
+                                    collapse_metrics=collapse_metrics)
+                if grain == "hour"
+                else _fetch_dynamo(lookback_days, env, now, detail_days))
     elif source == "sqlite":
         rows = _fetch_sqlite(lookback_days, env, now)
     elif source == "both":
-        rows = _fetch_both(lookback_days, env, now, detail_days)
+        rows = _fetch_both(lookback_days, env, now, detail_days,
+                           grain, collapse_metrics)
     else:
         rows = _fetch_snowflake(lookback_days, env, now)
 
@@ -1251,7 +1257,46 @@ def _row_key(row):
             row.get("OCCURRED_AT"), row.get("METRIC_VALUE"))
 
 
-def _fetch_both(lookback_days, env, now, detail_days=None):
+def _fetch_both_hourly(lookback_days, env, now, collapse_metrics):
+    """`both` at HOURLY grain: Snowflake RAW + the DynamoDB warn/info rollup.
+
+    Snowflake is left RAW on purpose — its dbt rows carry the real model identity
+    in their PAYLOAD (transform._pick_pay reads it), and folding to hourly here
+    would discard the payload and collapse every dbt model into one mislabelled
+    lane. The DynamoDB side has no dbt rows and no payload the timeline needs, so
+    it comes from the rollup. Uniform ≤24 marks/lane is achieved at RENDER time
+    (build_timeline_context bucket_to_hour), which snaps the raw Snowflake marks
+    to the hour too — AFTER names are resolved from payload. Disjoint pipelines,
+    so no cross-leg dedupe.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    LAST_SOURCE_ERRORS.clear()
+    rows: list[dict] = []
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        sf_fut = pool.submit(_fetch_snowflake, lookback_days, env, now)
+        dyn_fut = pool.submit(fetch_rollup_events, lookback_days, env, now,
+                              2, collapse_metrics)
+        try:
+            sf = sf_fut.result()
+            rows += sf
+            logger.info("both/hourly: Snowflake %d raw row(s) (payload kept)", len(sf))
+        except Exception as exc:
+            logger.error("both/hourly: Snowflake failed: %s", exc)
+            LAST_SOURCE_ERRORS["snowflake"] = str(exc)
+        try:
+            dyn = dyn_fut.result()
+            rows += dyn
+            logger.info("both/hourly: DynamoDB rollup %d row(s)", len(dyn))
+        except Exception as exc:
+            logger.error("both/hourly: rollup failed: %s", exc)
+            LAST_SOURCE_ERRORS["dynamo"] = str(exc)
+    rows = [r for r in rows if r.get("OCCURRED_AT") is not None]
+    rows.sort(key=lambda r: r["OCCURRED_AT"])
+    return rows
+
+
+def _fetch_both(lookback_days, env, now, detail_days=None,
+                grain="event", collapse_metrics=False):
     """Union of everything Snowflake has (lambda critical/error + all dbt/auditor
     rows) plus the lambda warning/info rows.
 
@@ -1264,6 +1309,8 @@ def _fetch_both(lookback_days, env, now, detail_days=None):
     Resilient by design — if a store errors (creds, network, missing bucket),
     it's logged and the others still render, so a monitoring view never 500s
     because a single source hiccuped."""
+    if grain == "hour":
+        return _fetch_both_hourly(lookback_days, env, now, collapse_metrics)
     rows: list[dict] = []
     seen: set = set()
     dupes = 0

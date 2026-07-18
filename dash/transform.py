@@ -186,7 +186,8 @@ def build_timeline_context(rows, now: datetime, window_hours: int = 24,
                            center: bool = False,
                            now_pos: float = 0.75,
                            credit_rows=None, credit_peaks=None,
-                           tzname: str = "utc"):
+                           tzname: str = "utc",
+                           bucket_to_hour: bool = False):
     """
     Returns a dict consumed by templates/timeline.html.
 
@@ -227,7 +228,18 @@ def build_timeline_context(rows, now: datetime, window_hours: int = 24,
     if live_now is not None and win_start <= live_now <= win_end:
         now_left_pct = round((live_now - win_start).total_seconds() / span_s * 100, 2)
 
-    # bucket events -> runs keyed by (pipeline, minute)
+    # Mark/cadence bucket granularity. Default is per-minute; bucket_to_hour
+    # snaps to the hour so every lane shows ≤24 marks/day (the hourly-rollup
+    # look), applied AFTER names are resolved so dbt identity survives. Cadence
+    # then floors at 1h, the accepted hourly consequence.
+    if bucket_to_hour:
+        def _bkt(t):
+            return t.replace(minute=0, second=0, microsecond=0)
+    else:
+        def _bkt(t):
+            return t.replace(second=0, microsecond=0)
+
+    # bucket events -> runs keyed by (pipeline, minute-or-hour)
     runs = defaultdict(lambda: {"rank": 1, "alert": False, "n": 0, "events": []})
     # everything (7d) for cadence + staleness
     last_seen = {}
@@ -269,11 +281,11 @@ def build_timeline_context(rows, now: datetime, window_hours: int = 24,
         # track last-seen + cadence buckets over full input range
         if p not in last_seen or ts > last_seen[p]:
             last_seen[p] = ts
-        all_buckets[p].add(ts.replace(second=0, microsecond=0))
+        all_buckets[p].add(_bkt(ts))
 
         # window-scoped aggregates
         if win_start <= ts < win_end:
-            key = (p, ts.replace(second=0, microsecond=0))
+            key = (p, _bkt(ts))
             run = runs[key]
             run["rank"] = max(run["rank"], SEV_RANK.get(sev, 1))
             run["alert"] = run["alert"] or is_alert
