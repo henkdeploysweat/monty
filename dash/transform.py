@@ -1379,6 +1379,19 @@ def _is_volume_metric(name: str) -> bool:
     return not any(h in n for h in _NON_VOLUME_HINTS)
 
 
+def _is_rowcount_metric(name: str) -> bool:
+    """True ONLY for the metrics we score for anomalies: a row-load count
+    (name ends '.rows') or the dbt rows-loaded metric (`dbt_model_run`).
+
+    Everything else — watermarks, max_date timestamps, batch totals, fetch
+    counts — is listed on the anomaly page but never scored: a watermark moving
+    forward is not an anomaly, a row count dropping is. Deliberately strict
+    (exact '.rows' suffix, not 'total_rows'/'rows_fetched') per the product call.
+    """
+    n = (name or "").lower()
+    return n.endswith(".rows") or n == "dbt_model_run"
+
+
 def build_anomaly_context(rows, now: datetime, baseline_days: int = 7,
                           env: str = "prod", z_threshold: float = 3.5,
                           min_points: int = 8, min_pct: float = 10.0,
@@ -1471,6 +1484,7 @@ def build_anomaly_context(rows, now: datetime, baseline_days: int = 7,
     skipped_fresh = 0
     skipped_low_points = 0      # metrics with too little history to score
     skipped_low_volume = 0      # volume metrics below the row-limit gate
+    skipped_non_rowcount = 0    # not a *.rows / dbt row-load metric
 
     def _mark_unscored(m, p, pts, reason):
         last_ts = pts[-1][0] if pts else None
@@ -1496,6 +1510,16 @@ def build_anomaly_context(rows, now: datetime, baseline_days: int = 7,
             skipped_fresh += 1
             _mark_unscored(m, p, pts,
                            "freshness metric — staleness is tracked on the timeline")
+            continue
+
+        # Only row-load metrics are scored for anomalies (*.rows + dbt rows-
+        # loaded). Everything else is listed but not scored — a watermark or
+        # max_date advancing is not an anomaly. Placed before the history/volume
+        # gates so a non-row metric never competes for a scored slot.
+        if not _is_rowcount_metric(m):
+            skipped_non_rowcount += 1
+            _mark_unscored(m, p, pts,
+                           "not a row-count metric (only *.rows + dbt are scored)")
             continue
 
         if range_mode:
@@ -1777,6 +1801,7 @@ def build_anomaly_context(rows, now: datetime, baseline_days: int = 7,
         "sensitivity": sensitivity,
         "skipped_low_points": skipped_low_points,
         "skipped_low_volume": skipped_low_volume,
+        "skipped_non_rowcount": skipped_non_rowcount,
         "drift": drift,
         "coverage": round(len(scored) / max(len(series), 1) * 100),
     }
