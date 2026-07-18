@@ -1154,11 +1154,23 @@ def fetch_rollup_events(lookback_days, env, now=None, live_tail_hours=2,
             env, start_hour, settled_end,
             (env, start_hour, settled_end))
 
-    # live tail: raw events over [settled_end, now], folded to hourly.
+    # The live (raw) lane starts right after the rollup's NEWEST hour — NOT a
+    # fixed `live_tail_hours` back. Otherwise a stale rollup (e.g. no refresh
+    # scheduler running yet) leaves a GAP between where the rollup actually ends
+    # and the fixed live window: those hours are in neither lane and a lane shows
+    # blank even though the pipeline ran. Self-healing: a fresh rollup gives
+    # ~live_tail_hours of raw; a stale one widens the live lane to cover the gap;
+    # an empty rollup reads the whole window raw. The two lanes stay disjoint
+    # because live starts one hour AFTER the rollup's last hour.
+    if settled:
+        live_start = max(r["OCCURRED_AT"] for r in settled) + timedelta(hours=1)
+    else:
+        live_start = start_hour
+
     table = _ddb_table(env)
     raw_pks = [pk for pk in _ddb_pipelines(env)
                if not pk.startswith(ROLLUP_PK_PREFIX)]
-    live_lo, live_hi = _sk_bounds(settled_end, now, include_end=True)
+    live_lo, live_hi = _sk_bounds(live_start, now, include_end=True)
     live_items = _ddb_query_window(table, raw_pks, live_lo, live_hi,
                                    _DDB_LEAN_ATTRS, "live")
     live = _fold_raw_hourly([_normalise_ddb_row(it) for it in live_items], env)
@@ -1168,8 +1180,8 @@ def fetch_rollup_events(lookback_days, env, now=None, live_tail_hours=2,
         rows = _collapse_to_pipeline_hour(rows, env)
     rows = [r for r in rows if r.get("OCCURRED_AT") is not None]
     rows.sort(key=lambda r: r["OCCURRED_AT"])
-    logger.info("rollup: %d hourly row(s) (%d settled + %d live, collapse=%s)",
-                len(rows), len(settled), len(live), collapse_metrics)
+    logger.info("rollup: %d hourly row(s) (%d settled + %d live from %s, collapse=%s)",
+                len(rows), len(settled), len(live), live_start, collapse_metrics)
     return rows
 
 
