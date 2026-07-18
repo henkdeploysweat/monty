@@ -683,6 +683,9 @@ _DDB_TRAILING_ATTRS = ("occurred_at", "pipeline_name")
 # range the upper bound needs a suffix above any id. '￿' encodes to
 # EF BF BF — above every byte a uuid4 (hex + '-') or a source ID can produce.
 _DDB_SK_MAX = "#￿"
+# The hourly rollup (rollup.py) shares this table under a separate pk namespace,
+# so raw-event reads never collide with it and _ddb_pipelines can skip it.
+ROLLUP_PK_PREFIX = "rollup#"
 
 
 def _ddb_table(env: str):
@@ -732,7 +735,14 @@ def _ddb_pipelines(env: str) -> list[str]:
             page += 1
             resp = table.scan(**kwargs)
             for item in resp.get("Items", []):
-                pks.add(item["pk"])
+                pk = item["pk"]
+                # The hourly rollup (rollup.py) stores its items in the SAME
+                # table under "rollup#<env>#<pipeline>". Those are not pipelines
+                # — skip them, or a Query would target a rollup partition as if
+                # it were raw event data.
+                if pk.startswith(ROLLUP_PK_PREFIX):
+                    continue
+                pks.add(pk)
             last_key = resp.get("LastEvaluatedKey")
             if not last_key:
                 break
