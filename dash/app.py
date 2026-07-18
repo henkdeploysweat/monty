@@ -279,9 +279,10 @@ def _anomaly_ctx(env, z, min_pct, baseline_days, day=None, rng=(None, None),
                family_filter=f.get("family", ""),
                pipeline_filter=f.get("pipeline", ""))
 
+    _agrain = "hour" if os.environ.get("MONTY_ANOMALY_GRAIN", "").lower() == "hour" else "event"
     if r_start and r_end:
         rows = db.fetch_events(lookback_days=baseline_days + (r_end - r_start).days + 1,
-                               env=env, now=r_end)
+                               env=env, now=r_end, grain=_agrain, collapse_metrics=False)
         ctx = build_anomaly_context(rows, r_end, baseline_days=baseline_days,
                                     env=env, z_threshold=z, min_pct=min_pct,
                                     min_points=min_points, row_limit=row_limit,
@@ -300,7 +301,10 @@ def _anomaly_ctx(env, z, min_pct, baseline_days, day=None, rng=(None, None),
         anchor = viewed = live_now
 
     fetch_now = None if (_is_csv() and not day) else anchor
-    rows = db.fetch_events(lookback_days=baseline_days, env=env, now=fetch_now)
+    # _agrain (MONTY_ANOMALY_GRAIN) set above: "hour" reads the hourly rollup
+    # instead of raw events, so the detector scores on hourly means.
+    rows = db.fetch_events(lookback_days=baseline_days, env=env, now=fetch_now,
+                           grain=_agrain, collapse_metrics=False)
     # CSV-dev-only snap to the (future-dated) sample's newest row; never in
     # live mode — see the matching guard in _timeline_ctx.
     if _is_csv() and not day and rows:

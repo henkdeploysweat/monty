@@ -1989,7 +1989,9 @@ def _svg_series(s, z_threshold, w=800, h=200, pad=8, rng=None, lt=None):
     xticks = []
     if n_ticks:
         span_days = (ts[-1] - ts[0]).total_seconds() / 86400.0
-        tick_fmt = "%b %d" if span_days >= 2 else "%H:%M"
+        # Multi-day views label ticks with the weekday too (e.g. "Mon Jul 15"),
+        # so a reader can see the weekly cadence at a glance; intraday stays H:M.
+        tick_fmt = "%a %b %d" if span_days >= 2 else "%H:%M"
         for i in range(n_ticks):
             frac = i / (n_ticks - 1) if n_ticks > 1 else 0.0
             t = ts[0] + (ts[-1] - ts[0]) * frac
