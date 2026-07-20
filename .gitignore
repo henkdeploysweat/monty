@@ -23,3 +23,8 @@ infra/.cdk.staging/
 .env
 .env.*
 !.env.example
+
+# Build artifact: the ECR digest captured by `make build` and consumed by
+# `make cdk-deploy`. Ephemeral per checkout — a committed (stale) digest
+# would silently deploy the WRONG image.
+.image-digest
