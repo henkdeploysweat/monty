@@ -259,6 +259,23 @@ class MontyStack(Stack):
             timeout_seconds=30,
             ecr_repo=ecr_repo,
         )
+        # Rollup: keeps the dashboard's materialised hourly aggregate current.
+        # Without it the aggregate goes stale, the dashboard silently falls
+        # back to reading ~300k raw events per page load, and the page times
+        # out. Timeout is generous because the run recomputes several trailing
+        # hours across every pipeline; it is idempotent, so a retry is free.
+        rollup_fn = self._docker_function(
+            "Rollup",
+            cmd=["lambdas.rollup.handler.lambda_handler"],
+            common_env=common_env,
+            role=role,
+            # Measured: a 3h window takes ~85s (of which ~30s is the pipeline
+            # discovery Scan, a fixed cost per run), so the 6h default lands
+            # near ~150s. 600s leaves room for a slow day without the arbiter
+            # killing a run half-written.
+            timeout_seconds=600,
+            ecr_repo=ecr_repo,
+        )
 
         # ---- API Gateway HTTP API in front of failure_proxy -------------
         http_api = apigw.HttpApi(
@@ -309,6 +326,21 @@ class MontyStack(Stack):
             description="Observer: poll CUSTOM_METRICS for unsent alerts every 5 minutes",
         )
         observer_schedule.add_target(targets.LambdaFunction(observer_fn))
+
+        # Hourly rollup refresh. The handler recomputes a TRAILING window
+        # (MONTY_ROLLUP_HOURS, default 6) rather than just the hour that just
+        # closed: the recompute is idempotent, so overlapping runs cost only
+        # time and buy two things — late-arriving events get folded in, and a
+        # single missed invocation cannot leave a permanent hole that the
+        # dashboard would then have to cover by reading raw events forever.
+        rollup_schedule = events.Rule(
+            self,
+            "RollupSchedule",
+            rule_name=f"monty-{env_name}-rollup-schedule",
+            schedule=events.Schedule.rate(Duration.hours(1)),
+            description="Rollup: refresh the materialised hourly aggregate every hour",
+        )
+        rollup_schedule.add_target(targets.LambdaFunction(rollup_fn))
 
         # ---- Resource policies for cross-stack subscription ------------
         # Other AWS stacks (analytics-ingest-iterate-repo et al.) need
