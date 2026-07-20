@@ -153,6 +153,28 @@ class MontyStack(Stack):
         # grant_write_data covers PutItem/BatchWrite without read/delete.
         metrics_table.grant_write_data(role)
 
+        # Cross-account read access for the tools account. A role in the
+        # tools account assumes this role to Query the metrics table (Query
+        # only — no Scan/GetItem/write, and no access to the prompt-logs
+        # table, which holds raw prompt/response bodies).
+        cross_account_query_role = iam.Role(
+            self,
+            "CrossAccountDynamoQueryRole",
+            role_name="CrossAccountDynamoQueryRole",
+            assumed_by=iam.AccountPrincipal("290606987225"),
+            description="Role assumed by tools account for DynamoDB Query access",
+        )
+        cross_account_query_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["dynamodb:Query"],
+                resources=[
+                    metrics_table.table_arn,
+                    # Covers any GSI/LSI added later; the table has none today.
+                    f"{metrics_table.table_arn}/index/*",
+                ],
+            )
+        )
+
         # DynamoDB table logging every SweatAI prompt/response. On-demand
         # billing (PAY_PER_REQUEST) so an idle endpoint costs nothing and a
         # spike needs no capacity planning; RETAIN so a stack teardown never
@@ -353,6 +375,12 @@ class MontyStack(Stack):
             "PromptLogsTableName",
             value=prompt_logs_table.table_name,
             description="DynamoDB table holding SweatAI prompt/response logs",
+        )
+        CfnOutput(
+            self,
+            "CrossAccountDynamoQueryRoleArn",
+            value=cross_account_query_role.role_arn,
+            description="Assume this from the tools account to Query the metrics table",
         )
 
     def _docker_function(
