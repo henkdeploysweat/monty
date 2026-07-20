@@ -844,3 +844,119 @@ python3 - <<'EOF'
     python scripts/invoke_log_scanner.py \                                                                                                                 --log-group /aws/lambda/ai-ingest-iterate-dev \                                                                                                      
     --hours 1                                                                                                                                            
 # monty
+
+---
+
+## 12. Calling the HTTP APIs with `curl`
+
+Both endpoints live on the same API Gateway HTTP API and use the same auth:
+an `X-Monty-Signature` header holding `HMAC-SHA256(MONTY_HMAC_SECRET, raw_body)`
+as hex. **Sign the exact bytes you send** — reformatting the JSON after signing
+gives a `401`.
+
+### 12.1 Shared setup (once per shell)
+
+```bash
+# 1. the shared secret
+export MONTY_HMAC_SECRET=$(aws secretsmanager get-secret-value \
+    --secret-id monty-dev-secrets \
+    --query SecretString --output text | jq -r '.MONTY_HMAC_SECRET')
+
+# 2. the API base URL — the FailureProxyUrl / SweatAiUrl outputs of `make cdk-deploy`
+export MONTY_API="https://<api-id>.execute-api.us-east-1.amazonaws.com"
+
+# 3. helper: sign a body and echo the hex signature
+monty_sig() { printf '%s' "$1" | openssl dgst -sha256 -hmac "$MONTY_HMAC_SECRET" -hex | awk '{print $NF}'; }
+```
+
+> If the secret is empty, every POST returns `401`. After populating it, force a
+> cold start on all four Lambdas — see gotcha #1 in §9.
+
+### 12.2 `POST /failure` — register a failure
+
+Required fields: `pipeline_name`, `run_id`, `error_message`, `severity`
+(`critical` | `error` | `warning` | `info`).
+Optional: `metric_name` (default `pipeline_failure`), `metric_value`,
+`environment`, `slack_webhook` (per-metric channel override), `payload` (object).
+
+```bash
+BODY='{"pipeline_name":"braze_cdi_sync","run_id":"2026-07-20T09:00:00Z","error_message":"Snowflake SQL compilation error: TIMESTAMP_TZ vs TIMESTAMP_NTZ","severity":"error","environment":"dev"}'
+
+curl -sS -X POST "$MONTY_API/failure" \
+  -H 'content-type: application/json' \
+  -H "X-Monty-Signature: $(monty_sig "$BODY")" \
+  -d "$BODY"
+# → {"status":"accepted"}          (HTTP 202)
+```
+
+With extra context and a channel override:
+
+```bash
+BODY='{"pipeline_name":"appsflyer_ingest","run_id":"run-4412","error_message":"429 from AppsFlyer API after 5 retries","severity":"critical","metric_name":"api_failure","metric_value":429,"payload":{"endpoint":"/raw-data","attempts":5},"slack_webhook":"https://hooks.slack.com/services/XXX/YYY/ZZZ"}'
+
+curl -sS -X POST "$MONTY_API/failure" \
+  -H 'content-type: application/json' \
+  -H "X-Monty-Signature: $(monty_sig "$BODY")" \
+  -d "$BODY"
+```
+
+`is_alert` is always `TRUE` for this route — `critical`/`error` land in
+Snowflake and reach Slack within a minute; `warning`/`info` go to DynamoDB and
+do **not** reach Slack (see §2).
+
+| Status | Meaning |
+|---|---|
+| `202` | Accepted and written |
+| `400` | Missing/empty required field, bad severity, non-numeric `metric_value`, or invalid JSON |
+| `401` | Bad or missing `X-Monty-Signature` |
+| `5xx` | Snowflake/DynamoDB write failed — safe to retry |
+
+### 12.3 `POST /sweatai` — AI analysis of a failure
+
+Required: `prompt`. Optional: `system_prompt` (overrides the DataOps persona),
+`service` (a caller label; logged, never sent to Claude).
+
+```bash
+BODY='{"prompt":"dbt model braze_cdi_delete_sync failed: TIMESTAMP_TZ vs TIMESTAMP_NTZ","service":"dbt-ci"}'
+
+curl -sS -X POST "$MONTY_API/sweatai" \
+  -H 'content-type: application/json' \
+  -H "X-Monty-Signature: $(monty_sig "$BODY")" \
+  -d "$BODY" | jq -r '.reply'
+```
+
+Full response shape:
+
+```json
+{
+  "id": "d1f...uuid",
+  "reply": "🚨 Error Summary: ...",
+  "model": "claude-haiku-4-5",
+  "service": "dbt-ci",
+  "usage": {"prompt_tokens": 210, "system_prompt_tokens": 512, "completion_tokens": 480},
+  "duration_sec": 3.912
+}
+```
+
+Building the body from a log file (keeps the JSON escaping correct):
+
+```bash
+BODY=$(jq -Rs '{prompt: ., service: "manual-curl"}' < /tmp/failure.log)
+
+curl -sS -X POST "$MONTY_API/sweatai" \
+  -H 'content-type: application/json' \
+  -H "X-Monty-Signature: $(monty_sig "$BODY")" \
+  -d "$BODY" | jq -r '.reply'
+```
+
+| Status | Meaning |
+|---|---|
+| `200` | Analysis returned |
+| `400` | Missing `prompt` or invalid JSON |
+| `401` | Bad or missing `X-Monty-Signature` |
+| `503` | `ANTHROPIC_API_KEY` missing from `monty-<env>-secrets` — add it, then cold-start |
+| `5xx` | Anthropic call failed after retries — retry |
+
+Every call is logged to `monty-<env>-sweatai-prompt-logs` in DynamoDB with full
+token accounting. Prefer [`clients/sweatai.py`](clients/sweatai.py) from Python —
+it does the signing for you. Full reference: [`SWEATAI.md`](SWEATAI.md).
