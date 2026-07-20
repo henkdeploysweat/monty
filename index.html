@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audit Report: Monty</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --secondary: #64748b;
+            --success: #22c55e;
+            --warning: #eab308;
+            --danger: #ef4444;
+            --bg: #f8fafc;
+            --card: #ffffff;
+            --text: #1e293b;
+            --border: #e2e8f0;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            padding: 20px;
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+        header {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        h1 { font-size: 1.75rem; margin-bottom: 8px; color: var(--primary); }
+        .subtitle { color: var(--secondary); font-size: 0.9rem; }
+        .path { font-family: monospace; color: var(--secondary); margin-top: 8px; }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin: 24px 0;
+        }
+        .stat-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px;
+            text-align: center;
+        }
+        .stat-value { font-size: 2rem; font-weight: 700; color: var(--primary); }
+        .stat-label { color: var(--secondary); font-size: 0.85rem; margin-top: 4px; }
+        .section {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+        .section h2 {
+            font-size: 1.25rem;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid var(--border);
+            color: var(--text);
+        }
+        .extension-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 12px;
+        }
+        .ext-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 12px;
+            background: var(--bg);
+            border-radius: 6px;
+            border: 1px solid var(--border);
+        }
+        .ext-name { font-family: monospace; font-weight: 600; }
+        .ext-count { font-size: 0.9rem; color: var(--secondary); }
+        .file-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 16px;
+        }
+        .file-table th {
+            background: var(--bg);
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            border-bottom: 2px solid var(--border);
+        }
+        .file-table td {
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+        .file-table tr:hover { background: var(--bg); }
+        .score {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 0.85rem;
+        }
+        .score-high { background: #dcfce7; color: #166534; }
+        .score-medium { background: #fef3c7; color: #92400e; }
+        .score-low { background: #fee2e2; color: #991b1b; }
+        .connection { display: flex; align-items: center; gap: 8px; }
+        .connection-count { background: var(--primary); color: white; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; }
+        .connection-links { font-size: 0.75rem; color: var(--secondary); margin-left: 8px; }
+        .connection-link { display: inline-block; font-family: monospace; color: var(--primary); margin-right: 6px; }
+        .no-connections { color: var(--secondary); font-style: italic; }
+        .git-badge {
+            background: var(--danger);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .generated { font-size: 0.75rem; color: var(--secondary); text-align: center; margin-top: 24px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📁 Audit Report: Monty</h1>
+            <div class="subtitle">Comprehensive file analysis</div>
+            <div class="path">/Users/henkduplooy/Documents/Berg/Monty</div>
+        </header>
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-value">24</div>
+                <div class="stat-label">Files</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">1.78 MB</div>
+                <div class="stat-label">Total Size</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">8</div>
+                <div class="stat-label">File Types</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">0</div>
+                <div class="stat-label">Highly Connected</div>
+            </div>
+        </div>
+        <div class="git-badge">Git Repository</div>
+        <div class="section">
+            <h2>📊 Files by Extension</h2>
+            <div class="extension-grid">
+                <div class="ext-item">
+            <div class="ext-name">.md</div>
+            <div class="ext-count">9 files</div>
+        </div><div class="ext-item">
+            <div class="ext-name">(no extension)</div>
+            <div class="ext-count">5 files</div>
+        </div><div class="ext-item">
+            <div class="ext-name">.png</div>
+            <div class="ext-count">4 files</div>
+        </div><div class="ext-item">
+            <div class="ext-name">.txt</div>
+            <div class="ext-count">2 files</div>
+        </div><div class="ext-item">
+            <div class="ext-name">.json</div>
+            <div class="ext-count">1 files</div>
+        </div><div class="ext-item">
+            <div class="ext-name">.csv</div>
+            <div class="ext-count">1 files</div>
+        </div><div class="ext-item">
+            <div class="ext-name">.svg</div>
+            <div class="ext-count">1 files</div>
+        </div><div class="ext-item">
+            <div class="ext-name">.db</div>
+            <div class="ext-count">1 files</div>
+        </div>
+            </div>
+        </div>
+        <div class="section">
+            <h2>📋 File Details</h2>
+            <table class="file-table">
+                <thead>
+                    <tr>
+                        <th>File Name</th>
+                        <th>Size</th>
+                        <th>Created</th>
+                        <th>Last Used</th>
+                        <th>Days Since</th>
+                        <th>Deletability Score</th>
+                        <th>Connection Score</th>
+                        <th>Connections</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+            <td>.DS_Store</td>
+            <td>14.00 KB</td>
+            <td>2026-05-10 08:31</td>
+            <td>2026-07-19 00:59</td>
+            <td>0</td>
+            <td><span class="score score-high">100/100</span></td>
+            <td><span class="score score-medium">23/100</span></td>
+            <td>
+                <div class="connection">
+                    <span class="connection-count">0</span>
+                    <span class="connection-links"><span class="no-connections">No connections</span></span>
+                </div>
+            </td>
+        </tr><tr>
+            <td>.image-digest</td>
+            <td>72.00 B</td>
+            <td>2026-06-07 15:09</td>
+            <td>2026-07-19 08:47</td>
+            <td>0</td>
+            <td><span class="score score-high">100/100</span></td>
+            <td><span class="score score-medium">23/100</span></td>
+            <td>
+                <div class="connection">
+                    <span class="connection-count">0</span>
+                    <span class="connection-links"><span class="no-connections">No connections</span></span>
+                </div>
+            </td>
+        </tr><tr>
+            <td>dbt.md</td>
+            <td>2.92 KB</td>
+            <td>2026-07-10 17:51</td>
+            <td>2026-07-19 08:47</td>
+            <td>0</td>
+            <td><span class="score score-high">100/100</span></td>
+            <td><span class="score score-medium">33/100</span></td>
+            <td>
+                <div class="connection">
+                    <span class="connection-count">1</span>
+                    <span class="connection-links"><span class="connection-link">dbt_audit.md</span></span>
+                </div>
+            </td>
+        </tr><tr>
+            <td>CLAUDE.md</td>
+            <td>11.25 KB</td>
+            <td>2026-07-17 21:23</td>
+            <td>2026-07-17 21:24</td>
+            <td>1</td>
+            <td><span class="score score-high">98/100</span></td>
+            <td><span class="score score-medium">23/100</span></td>
+            <td>
+                <div class="connection">
+                    <span class="connection-count">0</span>
+                    <span class="connection-links"><span class="no-connections">No connections</span></span>
+                </div>
+            </td>
+        </tr><tr>
+            <td>skills-lock.json</td>
+            <td>1.68 KB</td>
+            <td>2026-05-30 18:26</td>
+            <td>2026-07-17 14:30</td>
+            <td>2</td>
+            <td><span class="score score-high">96/100</span></td>
+            <td><span class="score score-medium">23/100</span></td>
+            <td>
+                <div class="connection">
+                    <span class="connection-count">0</span>
+                    <span class="connection-links"><span class="no-connections">No connections</span></span>
+                </div>
+            </td>
+        </tr><tr>
+            <td>Screenshot 2026-07-16 at 04.24.51.png</td>
+            <td>530.15 KB</td>
+            <td>2026-07-16 04:28</td>
+            <td>2026-07-17 14:30</td>
+            <td>2</td>
+            <td><span class="score score-high">96/100</span></td>
+            <td><span class="score score-medium">23/100</span></td>
+            <td>
+                <div class="connection">
+                    <span class="connection-count">0</span>
+                    <span class="connection-links"><span class="no-connections">No connections</span></span>
+                </div>
+            </td>
+        </tr><tr>
+            <td>dbt_audit.md</td>
+            <td>8.49 KB</td>
+            <td>2026-07-05 08:44</td>
+            <td>2026-07-17 14:30</td>
+            <td>2</td>
+            <td><span class="score score-high">96/100</span></td>
+            <td><span class="score score-medium">33/100</span></td>
+            <td>
+                <div class="connection">
+                    <span class="connection-count">1</span>
+                    <span class="connection-links"><span class="connection-link">dbt.md</span></span>
+                </div>
+            </td>
+        </tr><tr>
+            <td>requirements.txt</td>
+            <td>538.00 B</td>
+            <td>2026-07-17 14:25</td>
+            <td>2026-07-17 14:30</td>
+            <td>2</td>
+            <td><span class="score score-high">96/100</span></td>
+            <td><span class="score score-medium">23/100</span></td>
+            <td>
+                <div class="connection">
+                    <span class="connection-count">0</span>
+                    <span class="connection-links"><span class="no-connections">No connections</span></span>
+                </div>
+            </td>
+        </tr><tr>
+            <td>query (10).csv</td>
+            <td>40.74 KB</td>
+            <td>2026-07-15 21:53</td>
+            <td>2026-07-17 14:30</td>
+            <td>2</td>
+            <td><span class="score score-high">96/100</span></td>
+            <td><span class="score score-medium">23/100</span></td>
+            <td>
+                <div class="connection">
+                    <span class="connection-count">0</span>
+                    <span class="connection-links"><span class="no-connections">No connections</span></span>
+                </div>
+            </td>
+        </tr><tr>
+            <td>slackmessage.txt</td>
+            <td>1.59 KB</td>
+            <td>2026-07-07 08:29</td>
+            <td>2026-07-17 14:30</td>
+            <td>2</td>
+            <td><span class="score score-high">96/100</span></td>
+            <td><span class="score score-medium">23/100</span></td>
+            <td>
+                <div class="connection">
+                    <span class="connection-count">0</span>
+                    <span class="connection-links"><span class="no-connections">No connections</span></span>
+                </div>
+            </td>
+        </tr><tr>
+            <td>montydash.md</td>
+            <td>6.65 KB</td>
+            <td>2026-06-27 17:01</td>
+            <td>2026-07-17 14:30</td>
+            <td>2</td>
+            <td><span class="score score-high">96/100</span></td>
+            <td><span class="score score-medium">33/100</span></td>
+            <td>
+                <div class="connection">
+                    <span class="connection-count">1</span>
+                    <span class="connection-links"><span class="connection-link">monty.db</span></span>
+                </div>
+            </td>
+        </tr><tr>
+            <td>Screenshot 2026-07-16 at 03.37.01.png</td>
+            <td>663.32 KB</td>
+            <td>2026-07-16 03:38</td>
+            <td>2026-07-17 14:30</td>
+            <td>2</td>
+            <td><span class="score score-high">96/100</span></td>
+            <td><span class="score score-medium">23/100</span></td>
+            <td>
+                <div class="connection">
+                    <span class="connection-count">0</span>
+                    <span class="connection-links"><span class="no-connections">No connections</span></span>
+                </div>
+            </td>
+        </tr><tr>
+            <td>Makefile</td>
+            <td>5.07 KB</td>
+            <td>2026-06-07 14:53</td>
+            <td>2026-07-17 14:30</td>
+            <td>2</td>
+            <td><span class="score score-high">96/100</span></td>
+            <td><span class="score score-medium">23/100</span></td>
+            <td>
+                <div class="connection">
+                    <span class="connection-count">0</span>
+                    <span class="connection-links"><span class="no-connections">No connections</span></span>
+                </div>
+            </td>
+        </tr><tr>
+            <td>unified_monitoring_alert_architecture.svg</td>
+            <td>31.68 KB</td>
+            <td>2026-05-09 13:12</td>
+            <td>2026-07-17 14:30</td>
+            <td>2</td>
+            <td><span class="score score-high">96/100</span></td>
+            <td><span class="score score-medium">23/100</span></td>
+            <td>
+                <div class="connection">
+                    <span class="connection-count">0</span>
+                    <span class="connection-links"><span class="no-connections">No connections</span></span>
+                </div>
+            </td>
+        </tr><tr>
+            <td>SWEATAI.md</td>
+            <td>8.06 KB</td>
+            <td>2026-07-15 23:14</td>
+            <td>2026-07-17 14:30</td>
+            <td>2</td>
+            <td><span class="score score-high">96/100</span></td>
+            <td><span class="score score-medium">23/100</span></td>
+            <td>
+                <div class="connection">
+                    <span class="connection-count">0</span>
+                    <span class="connection-links"><span class="no-connections">No connections</span></span>
+                </div>
+            </td>
+        </tr><tr>
+            <td>TODO.md</td>
+            <td>3.47 KB</td>
+            <td>2026-07-17 14:40</td>
+            <td>2026-07-17 14:40</td>
+            <td>2</td>
+            <td><span class="score score-high">96/100</span></td>
+            <td><span class="score score-medium">23/100</span></td>
+            <td>
+                <div class="connection">
+                    <span class="connection-count">0</span>
+                    <span class="connection-links"><span class="no-connections">No connections</span></span>
+                </div>
+            </td>
+        </tr><tr>
+            <td>DynamoDB.md</td>
+            <td>8.09 KB</td>
+            <td>2026-07-17 14:43</td>
+            <td>2026-07-17 14:43</td>
+            <td>2</td>
+            <td><span class="score score-high">96/100</span></td>
+            <td><span class="score score-medium">23/100</span></td>
+            <td>
+                <div class="connection">
+                    <span class="connection-count">0</span>
+                    <span class="connection-links"><span class="no-connections">No connections</span></span>
+                </div>
+            </td>
+        </tr><tr>
+            <td>README.md</td>
+            <td>40.88 KB</td>
+            <td>2026-07-17 14:40</td>
+            <td>2026-07-17 14:44</td>
+            <td>2</td>
+            <td><span class="score score-high">96/100</span></td>
+            <td><span class="score score-medium">23/100</span></td>
+            <td>
+                <div class="connection">
+                    <span class="connection-count">0</span>
+                    <span class="connection-links"><span class="no-connections">No connections</span></span>
+                </div>
+            </td>
+        </tr><tr>
+            <td>Screenshot 2026-07-16 at 04.03.40.png</td>
+            <td>179.25 KB</td>
+            <td>2026-07-16 04:04</td>
+            <td>2026-07-17 14:30</td>
+            <td>2</td>
+            <td><span class="score score-high">96/100</span></td>
+            <td><span class="score score-medium">23/100</span></td>
+            <td>
+                <div class="connection">
+                    <span class="connection-count">0</span>
+                    <span class="connection-links"><span class="no-connections">No connections</span></span>
+                </div>
+            </td>
+        </tr><tr>
+            <td>.dockerignore</td>
+            <td>72.00 B</td>
+            <td>2026-05-10 05:57</td>
+            <td>2026-07-17 14:30</td>
+            <td>2</td>
+            <td><span class="score score-high">96/100</span></td>
+            <td><span class="score score-medium">23/100</span></td>
+            <td>
+                <div class="connection">
+                    <span class="connection-count">0</span>
+                    <span class="connection-links"><span class="no-connections">No connections</span></span>
+                </div>
+            </td>
+        </tr><tr>
+            <td>.gitignore</td>
+            <td>270.00 B</td>
+            <td>2026-05-09 13:55</td>
+            <td>2026-07-17 14:30</td>
+            <td>2</td>
+            <td><span class="score score-high">96/100</span></td>
+            <td><span class="score score-medium">23/100</span></td>
+            <td>
+                <div class="connection">
+                    <span class="connection-count">0</span>
+                    <span class="connection-links"><span class="no-connections">No connections</span></span>
+                </div>
+            </td>
+        </tr><tr>
+            <td>Screenshot 2026-05-11 at 01.49.07.png</td>
+            <td>230.96 KB</td>
+            <td>2026-05-11 01:49</td>
+            <td>2026-07-17 14:30</td>
+            <td>2</td>
+            <td><span class="score score-high">96/100</span></td>
+            <td><span class="score score-medium">23/100</span></td>
+            <td>
+                <div class="connection">
+                    <span class="connection-count">0</span>
+                    <span class="connection-links"><span class="no-connections">No connections</span></span>
+                </div>
+            </td>
+        </tr><tr>
+            <td>ADD_METRIC.md</td>
+            <td>34.70 KB</td>
+            <td>2026-07-17 14:40</td>
+            <td>2026-07-17 14:44</td>
+            <td>2</td>
+            <td><span class="score score-high">96/100</span></td>
+            <td><span class="score score-medium">23/100</span></td>
+            <td>
+                <div class="connection">
+                    <span class="connection-count">0</span>
+                    <span class="connection-links"><span class="no-connections">No connections</span></span>
+                </div>
+            </td>
+        </tr><tr>
+            <td>monty.db</td>
+            <td>0.00 B</td>
+            <td>2026-07-15 01:29</td>
+            <td>2026-07-15 01:29</td>
+            <td>4</td>
+            <td><span class="score score-high">92/100</span></td>
+            <td><span class="score score-medium">33/100</span></td>
+            <td>
+                <div class="connection">
+                    <span class="connection-count">1</span>
+                    <span class="connection-links"><span class="connection-link">montydash.md</span></span>
+                </div>
+            </td>
+        </tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="generated">Generated: 2026-07-19 17:15:37 | Audit Report</div>
+    </div>
+</body>
+</html>

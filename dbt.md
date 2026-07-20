@@ -27,3 +27,8 @@ On it — a compaction pass that collapses each run_date=YYYYMMDD/ prefix into o
   Made 1 scratchpad edit +132
 
 Done. compact_s3.py — collapses each run_date=YYYYMMDD
+
+
+cd /Users/henkduplooy/Documents/Berg/Monty/dash3. Run it — dry-run first:
+cd /Users/henkduplooy/Documents/Berg/Monty/dash
+python3 backfill_dynamo.py --env dev --days 28

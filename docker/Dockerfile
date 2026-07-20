@@ -17,6 +17,13 @@ COPY lambdas/ ${LAMBDA_TASK_ROOT}/lambdas/
 # stays out of the image. rollup.py does `import db` with its own directory on
 # sys.path, so the two must land in the SAME directory.
 COPY dash/db.py dash/rollup.py ${LAMBDA_TASK_ROOT}/dash/
+# COPY preserves the SOURCE file mode, and git does not track read bits — only
+# the exec bit — so whether these land readable depends on the umask of
+# whoever built. dash/db.py was 0600 locally, which the Lambda runtime (a
+# non-root user) could not read: every invocation died with
+# "PermissionError: /var/task/dash/db.py". Normalise explicitly so the image
+# is identical no matter who builds it.
+RUN chmod 0644 ${LAMBDA_TASK_ROOT}/dash/*.py
 
 ENTRYPOINT ["/lambda-entrypoint.sh"]
 
