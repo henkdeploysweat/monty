@@ -28,3 +28,7 @@ infra/.cdk.staging/
 # `make cdk-deploy`. Ephemeral per checkout — a committed (stale) digest
 # would silently deploy the WRONG image.
 .image-digest
+
+# Local RAG index (SQLite + its -wal/-shm sidecars). Regenerable local
+# state that churns on every run and conflicts on merge — never commit.
+.rag/
